@@ -1,0 +1,17 @@
+dist/
+build/
+bin/
+obj/
+*.exe
+*.pdb
+*.dll
+library.json
+library.json.bak
+sources.json
+sources.json.bak
+crash.txt
+*.log
+cache/
+tmp/
+preview/
+_recover/
