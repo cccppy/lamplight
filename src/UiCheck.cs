@@ -500,11 +500,49 @@ Check("长段落分句", lcover && lpos == longPara.Length && lmax <= 110, lp.Co
                 pctBook.Progress == null ? "null" : (pctBook.Progress.Percent * 100).ToString("0") + "%");
             f.Book = pctKeepBook; f.Chapters = pctKeepCh; f.PrepareChapter();
 
+            // 7.5) 拖动缩小窗口：正文要重新断行，不能被裁掉；阅读页允许缩窄
+            f.Current = View.Reader;
+            f.SyncMinSize();
+            f.ClientSize = new Size(1200, 780);
+            f.ReflowReader();
+            float wideW = f.LayoutWidth;
+            int wideLines = f.Layout == null ? 0 : f.Layout.Lines.Count;
+            f.ScrollY = 0; f.ClampScroll();
+            f.ClientSize = new Size(620, 600);
+            f.ReflowReader();
+            bool reflowed = f.Layout != null && f.LayoutWidth < wideW - 50 &&
+                            Math.Abs(f.LayoutWidth - f.ContentWidth()) < 1f &&
+                            f.Layout.Lines.Count > wideLines;
+            Check("窄窗正文重新断行", reflowed,
+                "宽=" + (int)wideW + "→" + (int)f.LayoutWidth + "，行=" + wideLines + "→" + (f.Layout == null ? 0 : f.Layout.Lines.Count));
+            Check("阅读页可以缩窄", f.MinimumSize.Width <= 620 && f.MinimumSize.Height <= 600,
+                f.MinimumSize.Width + "x" + f.MinimumSize.Height);
+            f.ClientSize = new Size(1200, 780);
+            f.ReflowReader();
+
             // 7) 排序：上次阅读第一
-            f.GoShelf();
-            f.RebuildShelf();
+            f.GoShelf();            f.RebuildShelf();
             Check("上次阅读第一", f.ShelfView.Count > 0 && string.Equals(f.ShelfView[0].Path, book.Path, StringComparison.OrdinalIgnoreCase),
                 f.ShelfView.Count > 0 ? f.ShelfView[0].DisplayName : "-");
+
+            // 7.6) 设置页右侧滚动条可拖
+            f.Current = View.Settings;
+            f.SyncMinSize();
+            f.ClientSize = new Size(1000, 600);
+            f.SettingsContentH = 2000;
+            f.SettingsScroll = 0;
+            PointF setBar = new PointF(f.W - 10, 300);
+            bool setBarHit = f.SettingsBarHit(setBar);
+            f.SettingsBarBegin(setBar);
+            f.SettingsBarMove(new PointF(f.W - 10, 420));
+            float setScroll = f.SettingsScroll;
+            f.SettingsBarMove(new PointF(f.W - 10, 900));
+            float setMax = f.SettingsContentH - f.SetViewH();
+            bool setClamped = Math.Abs(f.SettingsScroll - setMax) < 1f;
+            f.SettingsBarEnd();
+            Check("设置页滚动条可拖", setBarHit && setScroll > 0 && setClamped,
+                "hit=" + setBarHit + " scroll=" + (int)setScroll + " max=" + (int)setMax);
+            f.SettingsContentH = 0; f.SettingsScroll = 0;
 
             // 8) 主题与设置
             f.CycleTheme();

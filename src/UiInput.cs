@@ -82,6 +82,14 @@ namespace Lamplight
             base.OnResize(e);
             PlaceSearchBox();
             ClampShelf();
+            if (Current == View.Reader && Chapters.Count > 0)
+            {
+                float w = ContentWidth();
+                if (Layout == null || Math.Abs(w - LayoutWidth) > 0.5f)
+                {
+                    if (ReflowTimer != null && !ReflowTimer.Enabled) ReflowTimer.Start();
+                }
+            }
             Invalidate();
         }
 
@@ -130,6 +138,7 @@ namespace Lamplight
                 BookText = sampleText;
                 Chapters = TextDoc.Split(BookText);
                 Current = View.Reader;
+                SyncMinSize();
                 ChapterIndex = 0;
                 for (int ci = 0; ci < Chapters.Count; ci++)
                     if (Chapters[ci].Length > Chapters[ChapterIndex].Length) ChapterIndex = ci;
@@ -140,6 +149,7 @@ namespace Lamplight
             else
             {
                 Current = View.Shelf;
+                SyncMinSize();
             }
 
             if (mode == "bookmarks") OpenPanel = Panel.Bookmarks;

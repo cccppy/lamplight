@@ -39,6 +39,7 @@ namespace Lamplight
         public void OpenOnlineSearch()
         {
             Current = View.Online;
+            SyncMinSize();
             OpenPanel = Panel.None;
             PlaceOnlineBox();
             OnlineWanted = true;

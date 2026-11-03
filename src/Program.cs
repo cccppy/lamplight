@@ -199,9 +199,23 @@ namespace Lamplight
             f.PreviewMode = true;
             f.CreateControl();
             f.Scale = 1f;
+            int rw = 1200, rh = 780;
+            string sz = Environment.GetEnvironmentVariable("LAMPLIGHT_RENDER_SIZE");
+            if (!string.IsNullOrEmpty(sz))
+            {
+                string[] parts = sz.Split('x', 'X');
+                int v;
+                if (parts.Length == 2 && int.TryParse(parts[0], out v) && v >= 320) rw = v;
+                if (parts.Length == 2 && int.TryParse(parts[1], out v) && v >= 240) rh = v;
+            }
             f.ClientSize = new Size(1200, 780);
             bool shelfMode = mode == "shelf" || mode == "rename";
             f.EnterPreview(mode, shelfMode ? null : sample);
+            if (rw != 1200 || rh != 780)
+            {
+                f.ClientSize = new Size(rw, rh);
+                f.ReflowReader();
+            }
             if (shelfMode) { f.Hover = 2; f.Selected = 0; }
             if (mode == "rename") { f.Selected = 1; f.PreviewRename = 1; }
             f.PerformLayout();

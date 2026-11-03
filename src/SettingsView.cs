@@ -14,6 +14,53 @@ namespace Lamplight
         public View PreviousScreen = View.Shelf;
         public bool HelpVisible;
 
+        public bool SetBarDrag;
+        public float SetBarGrab;
+
+        public float SetViewTop() { return 62; }
+        public float SetViewH() { return Hh - 24 - 62; }
+
+        RectangleF SetBarRect()
+        {
+            float viewH = SetViewH();
+            float trackH = Math.Max(10, viewH - 8);
+            float content = Math.Max(SettingsContentH, 1);
+            float thumbH = Math.Max(28, trackH * viewH / content);
+            float max = Math.Max(0, content - viewH);
+            float t = max <= 0 ? 0 : Math.Min(1, SettingsScroll / max);
+            return new RectangleF(W - 18, SetViewTop() + 4 + (trackH - thumbH) * t, 6, thumbH);
+        }
+
+        public bool SettingsBarHit(PointF m)
+        {
+            if (SettingsContentH <= SetViewH() + 2) return false;
+            return m.X > W - 28 && m.X < W - 2 && m.Y > SetViewTop() && m.Y < Hh - 20;
+        }
+
+        public void SettingsBarBegin(PointF m)
+        {
+            SetBarDrag = true;
+            Cursor = Cursors.Hand;
+            RectangleF th = SetBarRect();
+            SetBarGrab = m.Y >= th.Y && m.Y <= th.Bottom ? m.Y - th.Y : th.Height / 2;
+            SettingsBarMove(m);
+        }
+
+        public void SettingsBarMove(PointF m)
+        {
+            if (!SetBarDrag) return;
+            float viewH = SetViewH();
+            float trackH = Math.Max(10, viewH - 8);
+            float max = Math.Max(0, SettingsContentH - viewH);
+            float thumbH = Math.Max(28, trackH * viewH / Math.Max(SettingsContentH, 1));
+            float travel = Math.Max(1, trackH - thumbH);
+            float y = m.Y - (SetViewTop() + 4) - SetBarGrab;
+            SettingsScroll = Math.Min(max, Math.Max(0, y / travel * max));
+            Invalidate();
+        }
+
+        public void SettingsBarEnd() { SetBarDrag = false; Cursor = Cursors.Default; Invalidate(); }
+
         readonly List<object[]> SetHits = new List<object[]>();
 
         void SetHit(RectangleF r, string action, int index)
@@ -46,6 +93,7 @@ namespace Lamplight
                 PreviousScreen = Current;
             }
             Current = View.Settings;
+            SyncMinSize();
             OpenPanel = Panel.None;
             HideOnlineBox();
             SettingsScroll = 0;
@@ -94,6 +142,9 @@ namespace Lamplight
             p.TextMid("灯下 Lamplight 0.2", p.F(10), Th.Faint, 24, h - 26);
 
             float x = navW + 40, right = w - 40, top = 62, bottom = h - 24;
+            float maxScroll = Math.Max(0, SettingsContentH - SetViewH());
+            if (SettingsScroll > maxScroll) SettingsScroll = maxScroll;
+            if (SettingsScroll < 0) SettingsScroll = 0;
             Region old = p.G.Clip;
             p.G.SetClip(new RectangleF(navW + 1, 44, w - navW - 1, h - 44));
             float cy = top - SettingsScroll;
@@ -108,11 +159,8 @@ namespace Lamplight
             float viewH = bottom - top;
             if (SettingsContentH > viewH + 2)
             {
-                float trackH = viewH - 8;
-                float thumbH = Math.Max(28, trackH * viewH / SettingsContentH);
-                float max = SettingsContentH - viewH;
-                float t = max <= 0 ? 0 : Math.Min(1, SettingsScroll / max);
-                p.FillRound(Th.Line, new RectangleF(w - 16, top + 4 + (trackH - thumbH) * t, 4, thumbH), 2);
+                RectangleF sb = SetBarRect();
+                p.FillRound(SetBarDrag ? Th.Accent : Th.Line, sb, 3);
             }
         }
 

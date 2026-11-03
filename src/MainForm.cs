@@ -25,6 +25,7 @@ namespace Lamplight
         public string BookText = "";
         public List<Chapter> Chapters = new List<Chapter>();
         public DocLayout Layout;
+        public float LayoutWidth = -1f;
         public int ChapterIndex;
         public float ScrollY;
         float WheelAccum;
@@ -65,6 +66,7 @@ namespace Lamplight
         public System.Windows.Forms.Timer AutoTimer;
         public System.Windows.Forms.Timer TickTimer;
         public System.Windows.Forms.Timer TtsClock;
+        public System.Windows.Forms.Timer ReflowTimer;
         PointF DownAt;
         bool MaybeSelect;
         long LastTickAt;
@@ -82,7 +84,7 @@ namespace Lamplight
                      ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(880, 560);
+            MinimumSize = new Size(880, 600);
             ClientSize = new Size(1200, 780);
             AllowDrop = true;
             Text = "灯下";
@@ -113,6 +115,15 @@ namespace Lamplight
                 if (TtsActive && TtsDeadline != DateTime.MinValue) Invalidate();
             };
             TtsClock.Start();
+
+            // 拖动窗口时正文重新断行：合并短时间内的连续尺寸变化
+            ReflowTimer = new System.Windows.Forms.Timer();
+            ReflowTimer.Interval = 60;
+            ReflowTimer.Tick += delegate
+            {
+                ReflowTimer.Stop();
+                ReflowReader();
+            };
 
             DragEnter += OnDragEnter;
             DragDrop += OnDragDrop;
@@ -285,6 +296,7 @@ namespace Lamplight
                     Chapters = new List<Chapter>();
                     foreach (string[] t in toc) Chapters.Add(new Chapter { Title = t[0], Start = 0, Length = 0 });
                     Current = View.Reader;
+                    SyncMinSize();
                     OpenPanel = Panel.None;
                     HideFindBoxes();
                     ChapterIndex = restore && b.Progress != null ? Math.Min(b.Progress.Chapter, Chapters.Count - 1) : 0;
@@ -308,6 +320,7 @@ namespace Lamplight
                 b.Added = b.Added == 0 ? Store.Now() : b.Added;
                 Store.Lib.Settings.LastBook = b.Id;
                 Current = View.Reader;
+                SyncMinSize();
                 OpenPanel = Panel.None;
                 if (SearchBox != null) { SearchBox.Visible = false; SearchFocused = false; }
                 SelStart = SelEnd = -1;
@@ -355,14 +368,20 @@ namespace Lamplight
 
         public void BuildLayout()
         {
-            if (Chapters.Count == 0) { Layout = null; return; }
-            PrepareChapter();
-            if (ChapterBody.Length == 0) { Layout = new DocLayout(); return; }
+            BuildLayout(false);
+        }
+
+        public void BuildLayout(bool reflowOnly)
+        {
+            if (Chapters.Count == 0) { Layout = null; LayoutWidth = -1f; return; }
+            if (!reflowOnly) PrepareChapter();
+            float w = ContentWidth();
+            LayoutWidth = w;
+            if (ChapterBody.Length == 0) { Layout = new DocLayout(); Layout.Width = w; return; }
             using (Bitmap bmp = new Bitmap(8, 8))
             using (Graphics g = Graphics.FromImage(bmp))
             {
                 Font f = p_font(g);
-                float w = ContentWidth();
                 float lh = Store.Lib.Settings.FontSize * Store.Lib.Settings.LineScale;
                 float indent = Store.Lib.Settings.Indent ? f.Size * 2f : 0f;
                 float gap = lh * Math.Max(0.1f, Store.Lib.Settings.ParaGapScale);
@@ -390,6 +409,47 @@ namespace Lamplight
         public Font BodyFont(Painter p)
         {
             return p.F(Store.Lib.Settings.FontSize, false, true);
+        }
+
+        /// <summary>窗口宽度变化后重新断行，并把阅读位置锚回原来那一行。</summary>
+        public void ReflowReader()
+        {
+            if (Current != View.Reader || Chapters.Count == 0) return;
+            if (Layout == null)
+            {
+                BuildLayout();
+                ClampScroll();
+                Invalidate();
+                return;
+            }
+            int anchor = 0;
+            if (Layout.Lines.Count > 0)
+            {
+                int li = TextDoc.LineAtY(Layout, Math.Max(0, ScrollY));
+                if (li >= 0 && li < Layout.Lines.Count) anchor = Layout.Lines[li].Start;
+            }
+            BuildLayout(true);
+            if (Layout != null && Layout.Lines.Count > 0)
+            {
+                int li = TextDoc.LineOfOffset(Layout, anchor);
+                if (li >= 0 && li < Layout.Lines.Count)
+                {
+                    float y = Layout.Lines[li].Y;
+                    ScrollY = Store.Lib.Settings.PageMode ? PageStartFor(y) : y;
+                }
+            }
+            ClampScroll();
+            Invalidate();
+        }
+
+        /// <summary>阅读页允许缩到更小；书架/设置保持足够宽度。按 DPI 缩放成设备像素。</summary>
+        public void SyncMinSize()
+        {
+            float s = Scale <= 0 ? 1f : Scale;
+            Size m = Current == View.Reader
+                ? new Size((int)(560 * s), (int)(440 * s))
+                : new Size((int)(880 * s), (int)(600 * s));
+            if (MinimumSize != m) MinimumSize = m;
         }
 
         public float ContentWidth()
@@ -660,6 +720,9 @@ namespace Lamplight
 
             if (Current == View.Settings)
             {
+                if (SetBarDrag) { SettingsBarMove(m); return; }
+                bool overBar = SettingsBarHit(m);
+                Cursor = overBar ? Cursors.Hand : Cursors.Default;
                 if (HoverPanel != oldPanel) Invalidate();
                 return;
             }
@@ -734,6 +797,7 @@ namespace Lamplight
             if (Current == View.Settings)
             {
                 if (m.Y < 44 && m.X >= 52) { DragWindow(); return; }
+                if (SettingsBarHit(m)) { SettingsBarBegin(m); return; }
                 SettingsClick(m);
                 return;
             }
@@ -788,6 +852,7 @@ namespace Lamplight
             PointF m = ToLogical(e);
             if (PanelBarDrag) { PanelBarEnd(); return; }
             if (OnlineBarDrag) { OnlineBarEnd(); return; }
+            if (SetBarDrag) { SettingsBarEnd(); return; }
             if (TtsPressed >= 0)
             {
                 int pressed = TtsPressed;
@@ -833,7 +898,7 @@ namespace Lamplight
             if (Current == View.Settings)
             {
                 SettingsScroll -= e.Delta / 120f * 64;
-                float max = Math.Max(0, SettingsContentH - (Hh - 90));
+                float max = Math.Max(0, SettingsContentH - SetViewH());
                 if (SettingsScroll > max) SettingsScroll = max;
                 if (SettingsScroll < 0) SettingsScroll = 0;
                 Invalidate();
@@ -920,6 +985,7 @@ namespace Lamplight
             {
                 RebuildShelf();
                 Current = View.Shelf;
+                SyncMinSize();
                 ShowToast("已添加 " + n + " 本");
             }
         }
@@ -931,6 +997,7 @@ namespace Lamplight
             HideOnlineBox();
             if (Current == View.Reader) SaveProgress();
             Current = View.Shelf;
+            SyncMinSize();
             OpenPanel = Panel.None;
             RebuildShelf();
             Invalidate();
