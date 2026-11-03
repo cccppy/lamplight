@@ -52,6 +52,12 @@ namespace Lamplight
         public static string SourceFile;
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
+        static Online()
+        {
+            // .NET 4.8 默认走系统 TLS；部分机器仍是 TLS 1.0 默认值，显式加上 1.2
+            try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch { }
+        }
+
         public static void Init(string dataDir)
         {
             SourceFile = Path.Combine(dataDir, "sources.json");
@@ -213,8 +219,8 @@ namespace Lamplight
                 HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
                 req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Lamplight/0.2";
                 if (!string.IsNullOrEmpty(referer)) { try { req.Referer = referer; } catch { } }
-                req.Timeout = 12000;
-                req.ReadWriteTimeout = 12000;
+                req.Timeout = 30000;
+                req.ReadWriteTimeout = 30000;
                 req.AllowAutoRedirect = true;
                 req.KeepAlive = false;
                 string proxy = Store.Lib.Settings.Proxy;

@@ -53,6 +53,8 @@ LamplightTts32.exe     朗读助手（必须和主程序放在同一目录）
 - 兼容原版 Reader 的 `bs.json`（XPath 规则），也支持自定义 `sources.json`（正则规则）
 - 支持 `{{key}}` 模板、POST 搜索、XPath 备选 `||`、GBK/UTF-8 自动识别
 - 支持把「阅读（Legado）」格式书源**尽力转换**为本程序的 XPath 规则；含 JS / JSONPath 的规则会跳过
+- 导入方式：设置 → 书源 → 「导入书源」选本地 JSON，或「从网址导入」直接粘贴书源链接
+- 多个书源打包的 JSON（数组 / `bookSources` / 单条对象）都能识别，重复书源会自动跳过
 - 搜索结果按书名合并、按相关度排序、关键词高亮，可展开选择不同书源
 
 **EPUB**

@@ -352,7 +352,8 @@ namespace Lamplight
             p.Text("支持原版 Reader 的 bs.json（XPath 规则），也支持自有的正则规则格式。", p.F(11), Th.Muted, x + 22, cardTop + 42);
             p.Text("导入后可在「在线书源」里搜索，章节正文会自动缓存到本地。", p.F(11), Th.Muted, x + 22, cardTop + 64);
             Button(p, x + 22, cardTop + 92, 118, "导入书源", "importsource", 0, true);
-            Button(p, x + 150, cardTop + 92, 118, "在线搜索", "onlinesearch", 0, false);
+            Button(p, x + 150, cardTop + 92, 128, "从网址导入", "importsourceurl", 0, false);
+            Button(p, x + 288, cardTop + 92, 118, "在线搜索", "onlinesearch", 0, false);
             y = cardTop + 168 + 16;
 
             cardTop = y;
@@ -495,6 +496,7 @@ namespace Lamplight
             if (a == "fontfamily") { CycleFontFamily(); return true; }
             if (a == "opendata") { OpenPath(Store.DataFile); return true; }
             if (a == "importsource") { ImportSources(); return true; }
+            if (a == "importsourceurl") { ImportSourcesFromUrl(); return true; }
             if (a == "onlinesearch") { OpenOnlineSearch(); return true; }
             if (a == "editregex")
             {

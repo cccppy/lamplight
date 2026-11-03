@@ -104,6 +104,28 @@ namespace Lamplight
                 return;
             }
 
+            if (args.Length >= 2 && args[0] == "--import-url")
+            {
+                string report;
+                try
+                {
+                    using (MainForm mf = new MainForm())
+                    {
+                        int added = mf.ImportUrl(args[1]);
+                        report = mf.LastImportReport;
+                        Environment.ExitCode = added > 0 ? 0 : 1;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    report = "error=" + ex.Message;
+                    Environment.ExitCode = 1;
+                }
+                try { File.WriteAllText(Path.Combine(Store.DataDir, "import-url.txt"), report, Encoding.UTF8); }
+                catch { }
+                return;
+            }
+
             if (args.Length >= 1 && args[0] == "--selftest")
             {
                 Environment.ExitCode = SelfTest.Run();
