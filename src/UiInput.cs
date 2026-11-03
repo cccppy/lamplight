@@ -161,6 +161,12 @@ namespace Lamplight
             if (mode == "settings-sources") { Current = View.Settings; SettingsSection = 3; }
             if (mode == "settings-about") { Current = View.Settings; SettingsSection = 4; }
             if (mode == "online") Current = View.Online;
+            if (mode == "online-results" || mode == "online-toc")
+            {
+                Current = View.Online;
+                SyncMinSize();
+                SeedOnlineResults(mode == "online-toc");
+            }
             if (mode == "reader-page") { Store.Lib.Settings.PageMode = true; Current = View.Reader; }
             if (mode == "reader-typo") { Store.Lib.Settings.TextColor = "#8C2F1E"; Store.Lib.Settings.LetterSpacing = 1.5f; Store.Lib.Settings.MarginX = 60f; Store.Lib.Settings.ParaGapScale = 0.7f; Current = View.Reader; }
             if (mode == "help") HelpVisible = true;

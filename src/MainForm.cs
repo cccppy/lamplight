@@ -664,6 +664,7 @@ namespace Lamplight
 
             if (e.KeyCode == Keys.Escape)
             {
+                if (OnlineTocOpen) { CloseOnlineToc(); return; }
                 if (HelpVisible) { HelpVisible = false; Invalidate(); return; }
                 if (Menu != MenuMode.None) { Menu = MenuMode.None; Invalidate(); return; }
                 if (OpenPanel != Panel.None) { OpenPanel = Panel.None; Invalidate(); return; }
@@ -729,8 +730,11 @@ namespace Lamplight
             if (OpenPanel != Panel.None && PanelBarDrag) { PanelBarMove(m); return; }
             if (Current == View.Online)
             {
+                if (OnlineTocBarDrag) { OnlineTocBarMove(m); return; }
                 if (OnlineBarDrag) { OnlineBarMove(m); return; }
-                HoverPanel = OnlineHoverCode(m);
+                int oh = OnlineHoverCode(m);
+                if (OnlineTocOpen) { if (oh != HoverPanel) { HoverPanel = oh; Invalidate(); } return; }
+                HoverPanel = oh;
             }
             else if (OpenPanel != Panel.None)
             {
@@ -803,6 +807,12 @@ namespace Lamplight
             }
             if (Current == View.Online)
             {
+                if (OnlineTocOpen)
+                {
+                    if (OnlineTocBarHit(m)) { OnlineTocBarBegin(m); return; }
+                    OnlineClick(m);
+                    return;
+                }
                 if (m.Y < 44 && m.X >= 52) { DragWindow(); return; }
                 if (OnlineBarHit(m)) { OnlineBarBegin(m); return; }
                 RectangleF field = new RectangleF(40, 66, Math.Min(420, W - 420), 40);
@@ -852,6 +862,7 @@ namespace Lamplight
             PointF m = ToLogical(e);
             if (PanelBarDrag) { PanelBarEnd(); return; }
             if (OnlineBarDrag) { OnlineBarEnd(); return; }
+            if (OnlineTocBarDrag) { OnlineTocBarEnd(); return; }
             if (SetBarDrag) { SettingsBarEnd(); return; }
             if (TtsPressed >= 0)
             {
@@ -918,6 +929,13 @@ namespace Lamplight
             }
             if (Current == View.Online)
             {
+                if (OnlineTocOpen)
+                {
+                    OnlineTocScroll -= e.Delta / 120f * 60f;
+                    ClampOnlineTocScroll();
+                    Invalidate();
+                    return;
+                }
                 OnlineScroll -= e.Delta / 120f * 70f;
                 ClampOnlineScroll();
                 Invalidate();
@@ -995,6 +1013,7 @@ namespace Lamplight
         {
             StopTts();
             HideOnlineBox();
+            if (OnlineTocOpen) CloseOnlineToc();
             if (Current == View.Reader) SaveProgress();
             Current = View.Shelf;
             SyncMinSize();

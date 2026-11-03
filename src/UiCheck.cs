@@ -359,6 +359,91 @@ Check("长段落分句", lcover && lpos == longPara.Length && lmax <= 110, lp.Co
             Check("相关度排序", f.OnlineGroups.Count > 0 && f.OnlineGroups[0].Title == "长夜将明",
                 f.OnlineGroups.Count > 0 ? f.OnlineGroups[0].Title : "-");
 
+            // 6.921) 结果行「目录」按钮命中优先于整行
+            f.Current = View.Online;
+            f.SyncMinSize();
+            f.ClientSize = new Size(1200, 780);
+            f.OnlineScroll = 0;
+            using (Bitmap bmpOnline = new Bitmap(1200, 780)) f.DrawToBitmap(bmpOnline, new Rectangle(0, 0, 1200, 780));
+            RectangleF tocBtnR = f.OnlineTocButtonRect(1, 0);
+            f.OnlineTocRequested = false;
+            f.OnlineClick(new PointF(tocBtnR.X + tocBtnR.Width / 2, tocBtnR.Y + tocBtnR.Height / 2));
+            Check("目录按钮可点", f.OnlineTocRequested, "rect=" + (int)tocBtnR.X + "," + (int)tocBtnR.Y);
+
+            // 6.923) 目录预览：真实取目录 + 点章跳转
+            BookEntry keepBook = f.Book;
+            var keepChapters = f.Chapters;
+            int keepChapter = f.ChapterIndex;
+            float keepScroll = f.ScrollY;
+            MockOnline.Start();
+            SourceDef mockSrc = Online.ParseBsJson(MockOnline.BsJson())[0];
+            List<SourceDef> savedSrcs = new List<SourceDef>(Online.Sources);
+            Online.Sources.Insert(0, mockSrc);
+            string mockUrl = "http://127.0.0.1:" + MockOnline.Port + "/book/1";
+            string mockBookId = Store.MakeId("online:" + mockUrl);
+            List<OnlineBook> mockBooks = new List<OnlineBook>();
+            mockBooks.Add(new OnlineBook
+            {
+                Title = "长夜将明", Author = "沈砚",
+                Url = mockUrl,
+                SourceId = mockSrc.Id, SourceName = mockSrc.Name
+            });
+            f.BuildGroups(mockBooks, "长夜");
+            f.OnlineScroll = 0;
+            using (Bitmap bmpToc = new Bitmap(1200, 780)) f.DrawToBitmap(bmpToc, new Rectangle(0, 0, 1200, 780));
+            RectangleF mockTocBtn = f.OnlineTocButtonRect(0, 0);
+            f.OnlineClick(new PointF(mockTocBtn.X + mockTocBtn.Width / 2, mockTocBtn.Y + mockTocBtn.Height / 2));
+            for (int wi = 0; wi < 300 && f.OnlineTocBusy; wi++) { Application.DoEvents(); System.Threading.Thread.Sleep(10); }
+            Check("目录预览取到章节", f.OnlineToc.Count == 2, "n=" + f.OnlineToc.Count + " err=" + f.OnlineTocErr);
+            if (f.OnlineToc.Count == 2)
+            {
+                RectangleF card2 = f.OnlineTocCardRect();
+                f.OnlineClick(new PointF(card2.X + 120, f.OnlineTocListTop + 34 + 8));
+                Check("预览点章直接打开", f.Current == View.Reader && f.ChapterIndex == 1,
+                    "view=" + f.Current + " ch=" + f.ChapterIndex + " n=" + f.Chapters.Count + " toast=" + f.Toast);
+            }
+            Online.Sources.Clear();
+            Online.Sources.AddRange(savedSrcs);
+
+            f.Book = keepBook;
+            f.Chapters = keepChapters;
+            f.ChapterIndex = keepChapter;
+            f.PrepareChapter();
+            f.BuildLayout(true);
+            f.ScrollY = keepScroll;
+            f.ClampScroll();
+            for (int bi2 = Store.Lib.Books.Count - 1; bi2 >= 0; bi2--)
+                if (Store.Lib.Books[bi2].Id == mockBookId) Store.Lib.Books.RemoveAt(bi2);
+            f.Current = View.Online;
+            f.SyncMinSize();
+
+            // 6.925) 每个源预览目录：点章、拖动、关闭
+            f.Current = View.Online;
+            f.SyncMinSize();
+            f.ClientSize = new Size(1200, 780);
+            f.OnlineTocBook = demoBooks[0];
+            f.OnlineToc = new System.Collections.Generic.List<string[]>();
+            for (int ci = 0; ci < 40; ci++) f.OnlineToc.Add(new string[] { "第" + (ci + 1) + "章 夜行", "http://x/" + ci });
+            f.OnlineTocOpen = true;
+            f.OnlineTocBusy = false;
+            f.OnlineTocErr = "";
+            f.OnlineTocScroll = 0;
+            RectangleF tocCard = f.OnlineTocCardRect();
+            int tocRow = f.OnlineTocRowAt(new PointF(tocCard.X + 100, f.OnlineTocListTop + 34 * 2 + 6));
+            Check("目录预览点章", tocRow == 2, "row=" + tocRow);
+            f.OnlineTocScroll = 34 * 5;
+            int tocRow2 = f.OnlineTocRowAt(new PointF(tocCard.X + 100, f.OnlineTocListTop + 6));
+            Check("目录预览可滚动", tocRow2 == 5, "row=" + tocRow2);
+            f.OnlineTocTrack = new RectangleF(tocCard.Right - 22, f.OnlineTocListTop + 4, 12, Math.Max(10, f.OnlineTocListBottom - f.OnlineTocListTop - 8));
+            bool tocBarHit = f.OnlineTocBarHit(new PointF(tocCard.Right - 16, f.OnlineTocListTop + 10));
+            f.OnlineTocBarBegin(new PointF(tocCard.Right - 16, f.OnlineTocListTop + 10));
+            f.OnlineTocBarMove(new PointF(tocCard.Right - 16, f.OnlineTocListTop + 60));
+            bool tocBarMoved = f.OnlineTocScroll > 34 * 5;
+            f.OnlineTocBarEnd();
+            Check("目录预览可拖动", tocBarHit && tocBarMoved, "hit=" + tocBarHit + " scroll=" + (int)f.OnlineTocScroll);
+            f.CloseOnlineToc();
+            Check("目录预览可关闭", !f.OnlineTocOpen && f.OnlineToc.Count == 0, "open=" + f.OnlineTocOpen);
+
             // 6.93) 在线书：进入章节要自动取正文
             string onlineCache = System.IO.Path.Combine(Online.CacheDir("uicheck-online"), "c0.txt");
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(onlineCache));

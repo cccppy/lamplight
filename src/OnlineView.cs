@@ -32,12 +32,27 @@ namespace Lamplight
         float OnlineDragScroll0;
         RectangleF OnlineTrack = RectangleF.Empty;
 
+        // 预览目录浮层
+        public bool OnlineTocOpen;
+        public OnlineBook OnlineTocBook;
+        public List<string[]> OnlineToc = new List<string[]>();
+        public bool OnlineTocBusy;
+        public string OnlineTocErr = "";
+        public float OnlineTocScroll;
+        int OnlineTocToken;
+        bool OnlineTocBarDrag;
+        float OnlineTocDragY0;
+        float OnlineTocDragScroll0;
+        public RectangleF OnlineTocTrack = RectangleF.Empty;
+        public bool OnlineTocRequested;
+
         public List<SourceDef> Sources { get { return Online.Sources; } }
 
         public void SaveSources() { Online.Save(); }
 
         public void OpenOnlineSearch()
         {
+            CloseOnlineToc();
             Current = View.Online;
             SyncMinSize();
             OpenPanel = Panel.None;
@@ -102,6 +117,151 @@ namespace Lamplight
             if (OnlineScroll < 0) OnlineScroll = 0;
         }
 
+        // ------------------------------------------------------------ 目录预览
+        float OnlineTocRowH { get { return 34f; } }
+
+        public RectangleF OnlineTocCardRect()
+        {
+            float w = Math.Min(640, W - 120);
+            float h = Math.Min(Hh - 140, 560);
+            return new RectangleF((W - w) / 2, Math.Max(64, (Hh - h) / 2), w, h);
+        }
+
+        public float OnlineTocListTop { get { return OnlineTocCardRect().Y + 66; } }
+        public float OnlineTocListBottom { get { return OnlineTocCardRect().Bottom - 50; } }
+
+        RectangleF OnlineTocCloseRect()
+        {
+            RectangleF c = OnlineTocCardRect();
+            return new RectangleF(c.Right - 46, c.Y + 14, 30, 30);
+        }
+
+        RectangleF OnlineTocStartRect()
+        {
+            RectangleF c = OnlineTocCardRect();
+            return new RectangleF(c.Right - 136, c.Bottom - 40, 116, 30);
+        }
+
+        public int OnlineTocRowAt(PointF m)
+        {
+            if (!OnlineTocOpen) return -1;
+            RectangleF c = OnlineTocCardRect();
+            float top = OnlineTocListTop, bottom = OnlineTocListBottom;
+            if (m.X < c.X + 12 || m.X > c.Right - 26 || m.Y < top || m.Y > bottom) return -1;
+            int row = (int)((m.Y - top + OnlineTocScroll) / OnlineTocRowH);
+            if (row < 0 || row >= OnlineToc.Count) return -1;
+            return row;
+        }
+
+        float OnlineTocContentH() { return Math.Max(0, OnlineToc.Count * OnlineTocRowH); }
+
+        void ClampOnlineTocScroll()
+        {
+            float max = Math.Max(0, OnlineTocContentH() - (OnlineTocListBottom - OnlineTocListTop));
+            if (OnlineTocScroll > max) OnlineTocScroll = max;
+            if (OnlineTocScroll < 0) OnlineTocScroll = 0;
+        }
+
+        public bool OnlineTocBarHit(PointF m)
+        {
+            return OnlineTocOpen && OnlineTocTrack.Height > 0 &&
+                   m.X > OnlineTocTrack.X && m.X < OnlineTocTrack.Right &&
+                   m.Y > OnlineTocTrack.Y - 4 && m.Y < OnlineTocTrack.Bottom + 4;
+        }
+
+        public void OnlineTocBarBegin(PointF m)
+        {
+            OnlineTocBarDrag = true;
+            OnlineTocDragY0 = m.Y;
+            OnlineTocDragScroll0 = OnlineTocScroll;
+            Invalidate();
+        }
+
+        public void OnlineTocBarMove(PointF m)
+        {
+            if (!OnlineTocBarDrag) return;
+            float viewH = OnlineTocListBottom - OnlineTocListTop;
+            float max = Math.Max(1, OnlineTocContentH() - viewH);
+            float trackH = Math.Max(10, viewH - 8);
+            OnlineTocScroll = OnlineTocDragScroll0 + (m.Y - OnlineTocDragY0) * max / trackH;
+            ClampOnlineTocScroll();
+            Invalidate();
+        }
+
+        public void OnlineTocBarEnd() { OnlineTocBarDrag = false; Invalidate(); }
+
+        public void CloseOnlineToc()
+        {
+            OnlineTocOpen = false;
+            OnlineTocToken++;
+            OnlineTocBusy = false;
+            OnlineTocErr = "";
+            OnlineTocScroll = 0;
+            OnlineToc.Clear();
+            OnlineTocBook = null;
+            OnlineTocTrack = RectangleF.Empty;
+            OnlineHoverReset();
+            Invalidate();
+        }
+
+        void OnlineHoverReset() { HoverPanel = -1; }
+
+        public RectangleF OnlineTocButtonRect(int group, int item)
+        {
+            if (group < 0 || group >= OnlineGroups.Count) return RectangleF.Empty;
+            float y = OnlineListTop - OnlineScroll;
+            for (int i = 0; i < group; i++)
+            {
+                y += OnlineRowH + 6;
+                if (i == OnlineExpanded) y += OnlineGroups[i].Items.Count * OnlineItemH;
+            }
+            RectangleF r = new RectangleF(40, y, W - 80, OnlineRowH);
+            if (OnlineGroups[group].Items.Count > 1)
+            {
+                float iy = y + OnlineRowH + 6 + item * OnlineItemH;
+                RectangleF ir = new RectangleF(56, iy, W - 112, OnlineItemH - 4);
+                return new RectangleF(ir.Right - 118, ir.Y + (OnlineItemH - 4) / 2 - 13, 54, 26);
+            }
+            return new RectangleF(r.Right - 172, r.Y + 17, 60, 28);
+        }
+
+        void PreviewOnlineToc(OnlineBook ob)
+        {
+            OnlineTocRequested = true;
+            SourceDef src = Online.Find(ob.SourceId);
+            if (src == null) { ShowToast("书源不存在"); return; }
+            HideOnlineBox();
+            OnlineTocBook = ob;
+            OnlineToc.Clear();
+            OnlineTocErr = "";
+            OnlineTocBusy = true;
+            OnlineTocOpen = true;
+            OnlineTocScroll = 0;
+            OnlineTocTrack = RectangleF.Empty;
+            int token = ++OnlineTocToken;
+            Invalidate();
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                string err = null;
+                List<string[]> toc = null;
+                try { toc = Online.GetToc(src, ob.Url, out err); }
+                catch (Exception ex) { err = ex.Message; }
+                try
+                {
+                    BeginInvoke((Action)delegate
+                    {
+                        if (token != OnlineTocToken || !OnlineTocOpen) return;
+                        OnlineTocBusy = false;
+                        if (toc == null || toc.Count == 0) OnlineTocErr = err ?? "空目录";
+                        else OnlineToc = toc;
+                        ClampOnlineTocScroll();
+                        Invalidate();
+                    });
+                }
+                catch { }
+            });
+        }
+
         // ------------------------------------------------------------ 绘制
         void DrawOnline(Painter p, RectangleF area)
         {
@@ -150,6 +310,7 @@ namespace Lamplight
             {
                 OnlineGroup g = OnlineGroups[i];
                 RectangleF r = new RectangleF(40, y, w - 80, OnlineRowH);
+                RectangleF singleToc = RectangleF.Empty;
                 if (r.Bottom >= OnlineListTop - 8 && r.Y <= OnlineListBottom + 8)
                 {
                     if (HoverPanel == 90 + i) p.FillRound(Th.Hover, r, 10);
@@ -163,9 +324,19 @@ namespace Lamplight
                         p.FillRound(Th.AccentSoft, badge, 12);
                         p.TextMidCenter(g.Items.Count + " 源", p.F(10), Th.Accent, badge.X + 26, badge.Y + 12);
                     }
+                    else
+                    {
+                        RectangleF tocBtn = new RectangleF(r.Right - 172, r.Y + 17, 60, 28);
+                        singleToc = tocBtn;
+                        bool hotToc = HoverPanel == 4000 + i * 100;
+                        p.FillRound(hotToc ? Th.AccentSoft : Th.Panel, tocBtn, 14);
+                        p.Stroke(hotToc ? Th.Accent : Th.Line, tocBtn, 14, 1);
+                        p.TextMidCenter("目录", p.F(10), hotToc ? Th.Accent : Th.Body, tocBtn.X + 30, tocBtn.Y + 14);
+                    }
                     p.TextMidRight(i == OnlineExpanded ? "收起" : (g.Items.Count > 1 ? "展开" : "打开 →"),
                         p.F(10.5f, true), Th.Accent, r.Right - 24, r.Y + 31);
                     AddHit(new RectangleF(r.X, r.Y, r.Width, r.Height), "ogroup", i);
+                    if (!singleToc.IsEmpty) AddHit(singleToc, "otoc", i * 100);
                 }
                 y += OnlineRowH + 6;
 
@@ -179,8 +350,14 @@ namespace Lamplight
                         {
                             if (HoverPanel == 2000 + i * 50 + k) p.FillRound(Th.Hover, ir, 8);
                             p.TextMid(b.SourceName, p.F(11), Th.Ink, ir.X + 12, ir.Y + (OnlineItemH - 4) / 2);
+                            RectangleF tocBtn2 = new RectangleF(ir.Right - 118, ir.Y + (OnlineItemH - 4) / 2 - 13, 54, 26);
+                            bool hotToc2 = HoverPanel == 4000 + i * 100 + k;
+                            p.FillRound(hotToc2 ? Th.AccentSoft : Th.Panel, tocBtn2, 13);
+                            p.Stroke(hotToc2 ? Th.Accent : Th.Line, tocBtn2, 13, 1);
+                            p.TextMidCenter("目录", p.F(10), hotToc2 ? Th.Accent : Th.Body, tocBtn2.X + 27, tocBtn2.Y + 13);
                             p.TextMidRight("阅读 →", p.F(10.5f), Th.Accent, ir.Right - 16, ir.Y + (OnlineItemH - 4) / 2);
                             AddHit(ir, "oitem", i * 100 + k);
+                            AddHit(tocBtn2, "otoc", i * 100 + k);
                         }
                         y += OnlineItemH;
                     }
@@ -203,6 +380,78 @@ namespace Lamplight
                 p.FillRound(OnlineBarDrag ? Th.Accent : Th.Muted,
                     new RectangleF(w - 23, OnlineListTop + 4 + (trackH - thumbH) * t, 8, thumbH), 4);
             }
+
+            if (OnlineTocOpen) DrawOnlineToc(p, w, h);
+        }
+
+        void DrawOnlineToc(Painter p, float w, float h)
+        {
+            p.Fill(Color.FromArgb(Th.IsDark ? 150 : 105, 20, 14, 8), new RectangleF(0, 0, w, h));
+            RectangleF c = OnlineTocCardRect();
+            p.Shadow(c, 0, 44, 0, 9);
+            p.FillRound(Th.Panel, c, 14);
+            p.Stroke(Th.Line, c, 14, 1);
+
+            string title = OnlineTocBook == null ? "目录预览" : OnlineTocBook.Title;
+            p.Text(p.Truncate(title, p.F(16, true), c.Width - 120), p.F(16, true), Th.Ink, c.X + 24, c.Y + 18);
+            string sub = OnlineTocBook == null ? "" : OnlineTocBook.SourceName;
+            if (OnlineTocBusy) sub += " · 正在读取目录…";
+            else if (OnlineTocErr.Length > 0) sub += " · " + OnlineTocErr;
+            else if (OnlineToc.Count > 0) sub += " · 共 " + OnlineToc.Count + " 章";
+            p.Text(p.Truncate(sub, p.F(10.5f), c.Width - 120), p.F(10.5f), Th.Faint, c.X + 24, c.Y + 44);
+
+            RectangleF close = OnlineTocCloseRect();
+            if (HoverPanel == 5000) p.FillRound(Th.Hover, close, 8);
+            p.DrawIcon(Glyph.Close, new RectangleF(close.X + 7, close.Y + 7, 16, 16), Th.Muted, 1.4f);
+            p.Line(Th.Line, c.X + 20, c.Y + 64, c.Right - 20, c.Y + 64, 1);
+
+            float top = OnlineTocListTop, bottom = OnlineTocListBottom;
+            Region old = p.G.Clip;
+            p.G.SetClip(new RectangleF(c.X + 10, top, c.Width - 20, bottom - top));
+            OnlineTocTrack = RectangleF.Empty;
+
+            if (OnlineToc.Count == 0)
+            {
+                string msg = OnlineTocBusy ? "正在读取目录…" : (OnlineTocErr.Length > 0 ? OnlineTocErr : "没有目录");
+                p.TextCenter(msg, p.F(12), Th.Muted, c.X + c.Width / 2, (top + bottom) / 2 - 8);
+            }
+            else
+            {
+                int first = Math.Max(0, (int)(OnlineTocScroll / OnlineTocRowH) - 1);
+                for (int i = first; i < OnlineToc.Count; i++)
+                {
+                    float y = top + i * OnlineTocRowH - OnlineTocScroll;
+                    if (y > bottom) break;
+                    RectangleF rr = new RectangleF(c.X + 14, y, c.Width - 40, 30);
+                    if (HoverPanel == 6000 + i) p.FillRound(Th.Hover, rr, 7);
+                    p.TextMid((i + 1).ToString(), p.F(10), Th.Faint, c.X + 26, y + 15);
+                    string ct = OnlineToc[i] != null && OnlineToc[i].Length > 0 ? OnlineToc[i][0] : "";
+                    p.TextMid(p.Truncate(ct, p.F(12), c.Width - 150), p.F(12), Th.Body, c.X + 70, y + 15);
+                }
+            }
+
+            float viewH = bottom - top;
+            float contentH = OnlineTocContentH();
+            if (contentH > viewH + 2)
+            {
+                float trackH = viewH - 8;
+                float thumbH = Math.Max(28, trackH * viewH / contentH);
+                float max = Math.Max(1, contentH - viewH);
+                float t = Math.Min(1, OnlineTocScroll / max);
+                RectangleF track = new RectangleF(c.Right - 22, top + 4, 12, trackH);
+                OnlineTocTrack = track;
+                p.FillRound(Color.FromArgb(60, Th.Line), track, 6);
+                p.FillRound(OnlineTocBarDrag ? Th.Accent : Th.Muted,
+                    new RectangleF(c.Right - 19, top + 4 + (trackH - thumbH) * t, 6, thumbH), 3);
+            }
+            p.G.Clip = old;
+
+            p.Line(Th.Line, c.X + 20, c.Bottom - 48, c.Right - 20, c.Bottom - 48, 1);
+            p.TextMid("点任意章节，直接从这一章开始读", p.F(10.5f), Th.Faint, c.X + 24, c.Bottom - 28);
+            RectangleF start = OnlineTocStartRect();
+            bool hotStart = HoverPanel == 5001;
+            p.FillRound(hotStart ? Th.Accent : Th.AccentSoft, start, 15);
+            p.TextMidCenter("从第一章开始", p.F(10.5f, true), hotStart ? Color.White : Th.Accent, start.X + start.Width / 2, start.Y + 15);
         }
 
         void DrawHighlightTitle(Painter p, string title, string key, float x, float y, float size, float maxW)
@@ -264,19 +513,29 @@ namespace Lamplight
 
         int OnlineHoverCode(PointF m)
         {
+            if (OnlineTocOpen)
+            {
+                if (OnlineTocCloseRect().Contains(m)) return 5000;
+                if (OnlineTocStartRect().Contains(m)) return 5001;
+                if (OnlineTocBarHit(m)) return 5002;
+                int row = OnlineTocRowAt(m);
+                return row >= 0 ? 6000 + row : -1;
+            }
             for (int i = Hits.Count - 1; i >= 0; i--)
             {
                 if (!((RectangleF)Hits[i][0]).Contains(m)) continue;
                 string a = (string)Hits[i][1];
                 int idx = (int)Hits[i][2];
+                if (a == "otoc") return 4000 + idx;
                 if (a == "ogroup") return 90 + idx;
                 if (a == "oitem") return 2000 + idx;
             }
             return -1;
         }
 
-        bool OnlineClick(PointF m)
+        public bool OnlineClick(PointF m)
         {
+            if (OnlineTocOpen) return OnlineTocClick(m);
             if (m.Y < 44 && m.X < 52) { GoShelf(); return true; }
             RectangleF sbtn = new RectangleF(40 + Math.Min(420, W - 420) + 12, 66, 96, 40);
             if (sbtn.Contains(m)) { StartOnlineSearch(); return true; }
@@ -288,6 +547,13 @@ namespace Lamplight
                 if (!((RectangleF)Hits[i][0]).Contains(m)) continue;
                 string a = (string)Hits[i][1];
                 int idx = (int)Hits[i][2];
+                if (a == "otoc")
+                {
+                    int gi = idx / 100, ii = idx % 100;
+                    if (gi < OnlineGroups.Count && ii < OnlineGroups[gi].Items.Count)
+                        PreviewOnlineToc(OnlineGroups[gi].Items[ii]);
+                    return true;
+                }
                 if (a == "ogroup")
                 {
                     OnlineGroup g = OnlineGroups[idx];
@@ -305,6 +571,30 @@ namespace Lamplight
                 }
             }
             return false;
+        }
+
+        bool OnlineTocClick(PointF m)
+        {
+            RectangleF card = OnlineTocCardRect();
+            if (OnlineTocCloseRect().Contains(m) || !card.Contains(m)) { CloseOnlineToc(); return true; }
+            if (OnlineTocStartRect().Contains(m))
+            {
+                if (OnlineToc.Count > 0) OpenOnlineAt(OnlineTocBook, OnlineToc, 0);
+                return true;
+            }
+            int row = OnlineTocRowAt(m);
+            if (row >= 0) OpenOnlineAt(OnlineTocBook, OnlineToc, row);
+            return true;
+        }
+
+        void OpenOnlineAt(OnlineBook ob, List<string[]> toc, int chapter)
+        {
+            if (ob == null || toc == null || toc.Count == 0) return;
+            if (chapter < 0) chapter = 0;
+            if (chapter >= toc.Count) chapter = toc.Count - 1;
+            List<string[]> copy = new List<string[]>(toc);
+            CloseOnlineToc();
+            OpenOnlineResultNow(ob, copy, chapter);
         }
 
         void PlaceOnlineBox()
@@ -335,6 +625,7 @@ namespace Lamplight
         // ------------------------------------------------------------ 搜索
         void StartOnlineSearch()
         {
+            if (OnlineTocOpen) CloseOnlineToc();
             string q = (OnlineBox != null ? OnlineBox.Text : OnlineQuery) ?? "";
             q = q.Trim();
             if (q.Length == 0) { OnlineStatus = "先输入关键词"; Invalidate(); return; }
@@ -393,8 +684,37 @@ namespace Lamplight
             });
         }
 
-        public void BuildGroups(List<OnlineBook> all, string q)
+        public void SeedOnlineResults(bool withToc)
         {
+            OnlineGroups = new List<OnlineGroup>();
+            OnlineGroup g1 = new OnlineGroup { Title = "长夜将明", Author = "沈砚" };
+            g1.Items.Add(new OnlineBook { Title = "长夜将明", Author = "沈砚", Url = "http://demo/1", SourceId = "demo1", SourceName = "笔趣阁" });
+            g1.Items.Add(new OnlineBook { Title = "长夜将明", Author = "沈砚", Url = "http://demo/2", SourceId = "demo2", SourceName = "书趣阁" });
+            OnlineGroups.Add(g1);
+            OnlineGroup g2 = new OnlineGroup { Title = "山河祭", Author = "佚名" };
+            g2.Items.Add(new OnlineBook { Title = "山河祭", Author = "佚名", Url = "http://demo/3", SourceId = "demo3", SourceName = "顶点小说" });
+            OnlineGroups.Add(g2);
+            OnlineGroup g3 = new OnlineGroup { Title = "北方的河", Author = "张承志" };
+            g3.Items.Add(new OnlineBook { Title = "北方的河", Author = "张承志", Url = "http://demo/4", SourceId = "demo4", SourceName = "起点" });
+            OnlineGroups.Add(g3);
+            OnlineExpanded = 0;
+            OnlineStatus = "找到 4 条，合并为 3 本";
+            OnlineQuery = "长夜";
+            OnlineKey = "长夜";
+            OnlineScroll = 0;
+            if (!withToc) return;
+            OnlineTocBook = g1.Items[0];
+            OnlineToc.Clear();
+            string[] names = { "雨夜", "渡口", "旧伞", "灯下", "归途", "长街", "潮声", "远山" };
+            for (int i = 0; i < 60; i++)
+                OnlineToc.Add(new string[] { "第" + (i + 1) + "章 " + names[i % names.Length], "http://demo/c" + i });
+            OnlineTocOpen = true;
+            OnlineTocBusy = false;
+            OnlineTocErr = "";
+            OnlineTocScroll = 0;
+        }
+
+        public void BuildGroups(List<OnlineBook> all, string q)        {
             Dictionary<string, OnlineGroup> map = new Dictionary<string, OnlineGroup>(StringComparer.OrdinalIgnoreCase);
             List<OnlineGroup> list = new List<OnlineGroup>();
             foreach (OnlineBook b in all)
@@ -476,14 +796,14 @@ namespace Lamplight
                             Invalidate();
                             return;
                         }
-                        OpenOnlineResultNow(ob, toc);
+                        OpenOnlineResultNow(ob, toc, -1);
                     });
                 }
                 catch { }
             });
         }
 
-        void OpenOnlineResultNow(OnlineBook ob, List<string[]> toc)
+        void OpenOnlineResultNow(OnlineBook ob, List<string[]> toc, int chapter)
         {
             try
             {
@@ -505,6 +825,11 @@ namespace Lamplight
                 Store.Save();
                 HideOnlineBox();
                 OpenBook(b, false);
+                if (chapter >= 0 && chapter < Chapters.Count)
+                {
+                    JumpTo(chapter, 0);
+                    SaveProgress();
+                }
             }
             catch (Exception ex) { ShowToast("打开失败：" + ex.Message); Invalidate(); }
         }
