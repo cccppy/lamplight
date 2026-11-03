@@ -479,6 +479,19 @@ Check("长段落分句", lcover && lpos == longPara.Length && lmax <= 110, lp.Co
             f.GoShelf();
             Check("离开在线隐藏输入框", !f.OnlineWanted, "");
 
+            // 6.91) 搜索可以随时停止，已返回的结果保留
+            f.OpenOnlineSearch();
+            f.OnlineGroups = new System.Collections.Generic.List<MainForm.OnlineGroup>();
+            var stopGroup = new MainForm.OnlineGroup { Title = "测试书" };
+            f.OnlineGroups.Add(stopGroup);
+            f.OnlineSearching = true;
+            f.OnlineBusy = true;
+            float stopBw = Math.Min(420, f.W - 420);
+            f.OnlineClick(new PointF(40 + stopBw + 12 + 48, 86));
+            Check("可以停止搜索", !f.OnlineSearching && !f.OnlineBusy && f.OnlineStatus.Contains("停止") && f.OnlineGroups.Count == 1,
+                f.OnlineStatus);
+            f.GoShelf();
+
             // 6.95) 最大化与窗口按钮
             System.Reflection.MethodInfo dbl = typeof(MainForm).GetMethod("OnMouseDoubleClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             f.WindowState = FormWindowState.Normal;
@@ -600,8 +613,21 @@ Check("长段落分句", lcover && lpos == longPara.Length && lmax <= 110, lp.Co
                             f.Layout.Lines.Count > wideLines;
             Check("窄窗正文重新断行", reflowed,
                 "宽=" + (int)wideW + "→" + (int)f.LayoutWidth + "，行=" + wideLines + "→" + (f.Layout == null ? 0 : f.Layout.Lines.Count));
-            Check("阅读页可以缩窄", f.MinimumSize.Width <= 620 && f.MinimumSize.Height <= 600,
+            Check("阅读页可以缩窄", f.MinimumSize.Width <= 430 && f.MinimumSize.Height <= 370,
                 f.MinimumSize.Width + "x" + f.MinimumSize.Height);
+
+            // 7.55) 420x360 窄窗：工具栏移第二行，正文至少留两行
+            f.ClientSize = new Size(420, 360);
+            f.ReflowReader();
+            bool narrowHeader = f.HeaderH() <= 76f && f.IconRects()[0].Y >= 44f && f.ContentTop() >= 108f;
+            float bodyRoom = f.ContentBottom() - f.BodyTop();
+            Check("窄窗工具栏不压书名", narrowHeader, "header=" + f.HeaderH() + " iconY=" + f.IconRects()[0].Y + " top=" + f.ContentTop());
+            Check("窄窗正文留足行高", bodyRoom >= 90f, "正文高=" + (int)bodyRoom);
+            f.ScrollY = 1e9f; f.ClampScroll();
+            LineInfo ll = f.Layout.Lines[f.Layout.Lines.Count - 1];
+            float lastY = f.BodyTop() + ll.Y - f.ScrollY;
+            Check("滚到底最后一行完整", lastY + ll.H <= f.ContentBottom() + 2f,
+                "底=" + (int)(lastY + ll.H) + " 界=" + (int)f.ContentBottom());
             f.ClientSize = new Size(1200, 780);
             f.ReflowReader();
 

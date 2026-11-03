@@ -84,7 +84,7 @@ namespace Lamplight
                      ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(880, 600);
+            MinimumSize = new Size(820, 560);
             ClientSize = new Size(1200, 780);
             AllowDrop = true;
             Text = "灯下";
@@ -447,8 +447,8 @@ namespace Lamplight
         {
             float s = Scale <= 0 ? 1f : Scale;
             Size m = Current == View.Reader
-                ? new Size((int)(560 * s), (int)(440 * s))
-                : new Size((int)(880 * s), (int)(600 * s));
+                ? new Size((int)(420 * s), (int)(360 * s))
+                : new Size((int)(820 * s), (int)(560 * s));
             if (MinimumSize != m) MinimumSize = m;
         }
 
@@ -468,7 +468,8 @@ namespace Lamplight
 
         public float ContentTop()
         {
-            return Store.Lib.Settings.ShowChrome ? 84f : 24f;
+            if (!Store.Lib.Settings.ShowChrome) return 24f;
+            return W < 480 ? 108f : 84f;
         }
 
         public float BodyTop()
@@ -534,7 +535,7 @@ namespace Lamplight
         public void ClampScroll()
         {
             if (Layout == null) return;
-            float max = Math.Max(0, Layout.Height + HeadingH - (ContentBottom() - ContentTop()) + 12);
+            float max = Math.Max(0, Layout.Height + HeadingH - (ContentBottom() - ContentTop()) + 2);
             if (Layout.Lines.Count > 0)
             {
                 float pageMax = PageStart(PageCount() - 1);
@@ -1014,6 +1015,7 @@ namespace Lamplight
             StopTts();
             HideOnlineBox();
             if (OnlineTocOpen) CloseOnlineToc();
+            if (OnlineSearching) StopOnlineSearch(true);
             if (Current == View.Reader) SaveProgress();
             Current = View.Shelf;
             SyncMinSize();

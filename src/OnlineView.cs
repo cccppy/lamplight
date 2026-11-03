@@ -20,6 +20,7 @@ namespace Lamplight
         public List<OnlineGroup> OnlineGroups = new List<OnlineGroup>();
         public string OnlineStatus = "";
         public bool OnlineBusy;
+        public bool OnlineSearching;
         public TextBox OnlineBox;
         public bool OnlineWanted;
         public string OnlineQuery = "";
@@ -281,8 +282,8 @@ namespace Lamplight
                 p.TextMid("输入书名或作者，回车搜索", p.F(11.5f), Th.Faint, bx + 42, by + 20);
 
             RectangleF sbtn = new RectangleF(bx + bw + 12, by, 96, 40);
-            p.FillRound(OnlineBusy ? Th.Line : Th.Accent, sbtn, 20);
-            p.TextMidCenter(OnlineBusy ? "搜索中…" : "搜索", p.F(11.5f, true), OnlineBusy ? Th.Muted : Color.White, sbtn.X + 48, by + 20);
+            p.FillRound(OnlineSearching ? Th.AccentHover : Th.Accent, sbtn, 20);
+            p.TextMidCenter(OnlineSearching ? "停止" : "搜索", p.F(11.5f, true), Color.White, sbtn.X + 48, by + 20);
 
             RectangleF mbtn = new RectangleF(sbtn.Right + 12, by, 120, 40);
             p.FillRound(Th.Panel, mbtn, 20);
@@ -294,7 +295,7 @@ namespace Lamplight
 
             if (OnlineGroups.Count == 0)
             {
-                string msg = Online.Sources.Count == 0 ? "还没有书源" : (OnlineBusy ? "正在搜索…" : "输入关键词，回车搜索");
+                string msg = Online.Sources.Count == 0 ? "还没有书源" : (OnlineSearching ? "正在搜索…" : "输入关键词，回车搜索");
                 p.DrawIcon(Glyph.Books, new RectangleF(w / 2 - 30, h / 2 - 116, 60, 60), Color.FromArgb(120, Th.Muted), 1.3f);
                 p.TextCenter(msg, p.F(16, true), Th.Ink, w / 2, h / 2 - 46);
                 p.TextCenter(Online.Sources.Count == 0 ? "点上方「管理书源」导入书源文件" : "结果会按书名合并、按相关度排序", p.F(11), Th.Muted, w / 2, h / 2 - 14);
@@ -538,7 +539,12 @@ namespace Lamplight
             if (OnlineTocOpen) return OnlineTocClick(m);
             if (m.Y < 44 && m.X < 52) { GoShelf(); return true; }
             RectangleF sbtn = new RectangleF(40 + Math.Min(420, W - 420) + 12, 66, 96, 40);
-            if (sbtn.Contains(m)) { StartOnlineSearch(); return true; }
+            if (sbtn.Contains(m))
+            {
+                if (OnlineSearching) StopOnlineSearch(false);
+                else StartOnlineSearch();
+                return true;
+            }
             RectangleF mbtn = new RectangleF(sbtn.Right + 12, 66, 120, 40);
             if (mbtn.Contains(m)) { OpenSettings(); SettingsSection = 3; Invalidate(); return true; }
 
@@ -636,6 +642,7 @@ namespace Lamplight
             int token = ++OnlineToken;
             OnlineKey = q;
             OnlineBusy = true;
+            OnlineSearching = true;
             OnlineStatus = "正在 " + enabled.Count + " 个书源中搜索…";
             OnlineGroups = new List<OnlineGroup>();
             OnlineExpanded = -1;
@@ -674,6 +681,7 @@ namespace Lamplight
                     {
                         if (token != OnlineToken) return;
                         OnlineBusy = false;
+                        OnlineSearching = false;
                         OnlineStatus = all.Count == 0
                             ? ("没有找到结果" + (failed > 0 ? "（" + failed + " 个书源失败）" : ""))
                             : ("找到 " + all.Count + " 条，合并为 " + OnlineGroups.Count + " 本" + (failed > 0 ? "（" + failed + " 个源失败）" : ""));
@@ -682,6 +690,21 @@ namespace Lamplight
                 }
                 catch { }
             });
+        }
+
+        /// <summary>停止搜索：让工作线程在下一个书源前退出，已返回的结果保留。</summary>
+        public void StopOnlineSearch(bool silent)
+        {
+            if (!OnlineSearching && !OnlineBusy) return;
+            OnlineToken++;
+            OnlineSearching = false;
+            OnlineBusy = false;
+            if (!silent)
+            {
+                int n = OnlineGroups.Count;
+                OnlineStatus = n > 0 ? ("已停止搜索，保留 " + n + " 本结果") : "已停止搜索";
+                Invalidate();
+            }
         }
 
         public void SeedOnlineResults(bool withToc)

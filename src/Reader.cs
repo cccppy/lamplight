@@ -447,6 +447,13 @@ namespace Lamplight
             if (dim > 0) p.Fill(Color.FromArgb(dim * 255 / 100, 0, 0, 0), new RectangleF(0, 0, w, h));
         }
 
+        /// <summary>窄窗时把工具栏放到第二行，避免压住书名。</summary>
+        public float HeaderH()
+        {
+            if (!Store.Lib.Settings.ShowChrome) return 0f;
+            return W < 480 ? 76f : 44f;
+        }
+
         // ============================================================ 绘制
         public void DrawReader(Painter p, RectangleF area)
         {
@@ -459,20 +466,30 @@ namespace Lamplight
 
             if (chrome)
             {
-                p.Fill(hasBg ? Color.FromArgb(230, Th.Window) : Th.Window, new RectangleF(0, 0, w, 44));
-                p.Line(Th.Line, 0, 44, w, 44, 1);
+                float hh = HeaderH();
+                bool narrow = w < 480;
+                p.Fill(hasBg ? Color.FromArgb(230, Th.Window) : Th.Window, new RectangleF(0, 0, w, hh));
+                p.Line(Th.Line, 0, hh, w, hh, 1);
 
                 if (HoverPanel == 10) p.FillRound(Th.Hover, BackRect(), 7);
                 p.DrawIcon(Glyph.Back, new RectangleF(22, 14, 18, 16), Th.Muted, 1.5f);
                 if (Book != null)
                 {
-                    p.TextMid(Book.DisplayName, p.F(12.5f, true), Th.Ink, 56, 22);
-                    float tw = p.Width(Book.DisplayName, p.F(12.5f, true));
-                    if (Chapters.Count > 0)
+                    Font tf = p.F(12.5f, true);
+                    float iconLeft = w - 338;
+                    float titleMax = narrow ? Math.Max(60, w - 144 - 56 - 16) : Math.Max(48, iconLeft - 56 - 24);
+                    string shown = p.Truncate(Book.DisplayName, tf, titleMax);
+                    p.TextMid(shown, tf, Th.Ink, 56, narrow ? 20 : 22);
+                    if (!narrow && Chapters.Count > 0)
                     {
-                        string ct = Chapters[ChapterIndex].Title;
-                        float maxW = w - 300 - (56 + tw + 14);
-                        p.TextMid(p.Truncate(ct, p.F(11), Math.Max(60, maxW)), p.F(11), Th.Faint, 56 + tw + 14, 22);
+                        float tw = p.Width(shown, tf);
+                        float cx = 56 + tw + 14;
+                        float maxW = iconLeft - cx - 12;
+                        if (maxW > 70)
+                        {
+                            string ct = Chapters[ChapterIndex].Title;
+                            p.TextMid(p.Truncate(ct, p.F(11), maxW), p.F(11), Th.Faint, cx, 22);
+                        }
                     }
                 }
 
@@ -488,7 +505,7 @@ namespace Lamplight
                 }
 
                 double topPct = BookPercent(ChapterIndex, ChapterPercent());
-                p.Fill(Th.Accent, new RectangleF(0, 44, (float)(w * topPct), 2));
+                p.Fill(Th.Accent, new RectangleF(0, hh - 2, (float)(w * topPct), 2));
             }
             else
             {
@@ -530,14 +547,15 @@ namespace Lamplight
             }
 
             float hy = ContentTop() + 8;
-            p.Text(Chapters[ChapterIndex].Title, p.F(27, false, true), inkCol, left, hy);
+            Font hf = p.F(27, false, true);
+            p.Text(p.Truncate(Chapters[ChapterIndex].Title, hf, width), hf, inkCol, left, hy);
             string meta = "本章 " + ChapterBody.Length + " 字 · 第 " + (ChapterIndex + 1) + " / " + Chapters.Count + " 章";
             if (Book != null && Book.ReadLog != null)
             {
                 float rp = ReadPercent(ChapterIndex);
                 meta += rp >= 0.95f ? " · 已读" : (rp > 0 ? " · 在读 " + (int)(rp * 100) + "%" : " · 未读");
             }
-            p.Text(meta, p.F(10.5f), lightText ? faintCol : Th.Muted, left + 2, hy + 44);
+            p.Text(p.Truncate(meta, p.F(10.5f), Math.Max(60, width - 2)), p.F(10.5f), lightText ? faintCol : Th.Muted, left + 2, hy + 44);
             p.Line(lightText ? faintCol : Th.Line, left, hy + 68, left + 46, hy + 68, 2);
 
             Region oldClip = p.G.Clip;
@@ -550,8 +568,8 @@ namespace Lamplight
             {
                 LineInfo ln = Layout.Lines[i];
                 float y = bodyTop + ln.Y - ScrollY;
-                if (y > bottom + 4) break;
-                if (y + ln.H < bodyTop - 4) continue;
+                if (y + ln.H > bottom + 2) break; // 只画完整落在正文区内的行，避免底部半行被裁
+                if (y < bodyTop - 2) continue;
                 if (ln.Start < 0 || ln.Start >= ChapterBody.Length) continue;
                 int take = Math.Min(ln.Len, ChapterBody.Length - ln.Start);
                 if (take <= 0) continue;
@@ -616,7 +634,8 @@ namespace Lamplight
         {
             RectangleF[] r = new RectangleF[5];
             float right = W - 132 - 12;
-            for (int i = 0; i < 5; i++) r[i] = new RectangleF(right - (5 - i) * 40 + 6, 10, 34, 26);
+            float y = W < 480 ? 44 : 10;
+            for (int i = 0; i < 5; i++) r[i] = new RectangleF(right - (5 - i) * 40 + 6, y, 34, 26);
             return r;
         }
 
@@ -642,6 +661,11 @@ namespace Lamplight
                 ? "第 " + (PageIndex() + 1) + " / " + PageCount() + " 页"
                 : (int)(ChapterPercent() * 100) + "%";
             p.TextMid(label, p.F(10.5f), Th.Muted, cx1, y + 13);
+            if (w < 620)
+            {
+                p.TextMidRight(Math.Round(bookPct * 100) + "%", p.F(10.5f), Th.Faint, cx2 - 8, y + 13);
+                return;
+            }
             float barX = cx1 + 86;
             string right = "全书 " + Math.Round(bookPct * 100) + "% · 已读 " + ReadChaptersCount() + "/" + Chapters.Count + " 章";
             float rw = p.Width(right, p.F(10.5f));

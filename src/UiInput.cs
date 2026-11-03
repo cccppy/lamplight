@@ -89,6 +89,7 @@ namespace Lamplight
                 {
                     if (ReflowTimer != null && !ReflowTimer.Enabled) ReflowTimer.Start();
                 }
+                else ClampScroll();
             }
             Invalidate();
         }
@@ -103,6 +104,7 @@ namespace Lamplight
             StyleInputs();
             ReloadBackground();
             RebuildShelf();
+            SyncMinSize();
             PlaceSearchBox();
             ActiveControl = null;
             MaximizedBounds = Screen.FromControl(this).WorkingArea;
