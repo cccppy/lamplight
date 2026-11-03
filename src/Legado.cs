@@ -23,7 +23,30 @@ namespace Lamplight
             JavaScriptSerializer ser = new JavaScriptSerializer();
             ser.MaxJsonLength = int.MaxValue;
             object root = ser.Deserialize<object>(json);
-            System.Collections.IEnumerable arr = root as System.Collections.IEnumerable;
+            System.Collections.IEnumerable arr = null;
+            Dictionary<string, object> rootObj = root as Dictionary<string, object>;
+            if (rootObj != null && rootObj.ContainsKey("bookSourceName"))
+            {
+                // 单条书源：{ "bookSourceName": ... }
+                arr = new object[] { rootObj };
+            }
+            else if (rootObj != null)
+            {
+                // 有些导出会包一层：{ "bookSources": [...] }
+                foreach (string key in new string[] { "bookSources", "sources", "data" })
+                {
+                    object inner;
+                    if (rootObj.TryGetValue(key, out inner) && inner is System.Collections.IEnumerable)
+                    {
+                        arr = (System.Collections.IEnumerable)inner;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                arr = root as System.Collections.IEnumerable;
+            }
             if (arr == null) { issues.Add("不是书源数组"); return list; }
 
             int idx = 0;

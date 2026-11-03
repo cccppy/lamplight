@@ -45,6 +45,11 @@ namespace Lamplight
                 + "\"ruleContent\":{\"content\":\"#content\"}}]";
             List<string> lIssues = new List<string>();
             List<SourceDef> lConv = Legado.Convert(legadoSample, lIssues);
+            string singleSample = legadoSample.Substring(1, legadoSample.Length - 2);
+            List<string> sIssues = new List<string>();
+            List<SourceDef> sConv = Legado.Convert(singleSample, sIssues);
+            Check("Legado 单条", sConv.Count == 1, sConv.Count + " 条 / " + string.Join(";", sIssues.ToArray()));
+
             Check("Legado 转换", lConv.Count == 1 && lConv[0].QueryUrl.Contains("{{key}}") && lConv[0].ContentXPath != null,
                 lConv.Count + " 个 / " + string.Join(";", lIssues.ToArray()));
 
