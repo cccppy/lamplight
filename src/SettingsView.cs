@@ -17,6 +17,10 @@ namespace Lamplight
         public bool SetBarDrag;
         public float SetBarGrab;
 
+        // 书源批量管理
+        public bool SourceBatch;
+        public HashSet<string> SourceSel = new HashSet<string>(StringComparer.Ordinal);
+
         public float SetViewTop() { return 62; }
         public float SetViewH() { return Hh - 24 - 62; }
 
@@ -393,6 +397,28 @@ namespace Lamplight
         }
 
         // ------------------------------------------------------------ 书源
+        static string CleanLabel(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c >= 0xD800 && c <= 0xDFFF) continue;         // 表情符号代理对，字体里没有
+                if (c >= 0xFE00 && c <= 0xFE0F) continue;         // 变体选择符
+                if (c >= 0x200B && c <= 0x200F) continue;
+                if (c >= 0x202A && c <= 0x202E) continue;
+                if (c >= 0x2060 && c <= 0x206F) continue;
+                sb.Append(c);
+            }
+            return sb.ToString().Trim();
+        }
+
+        string SourceKey(SourceDef s)
+        {
+            return s == null ? "" : (string.IsNullOrEmpty(s.Id) ? (s.Name ?? "") : s.Id);
+        }
+
         float DrawSetSources(Painter p, float x, float right, float y)
         {
             float cardTop = y;
@@ -416,18 +442,54 @@ namespace Lamplight
                 p.Text("还没有书源。点「导入书源」选择 bs.json 或 sources.json。", p.F(11.5f), Th.Faint, x + 22, y);
                 return y + 40;
             }
+
+            if (SourceBatch)
+            {
+                cardTop = y;
+                CardBox(p, x, right, cardTop, 58, "");
+                p.TextMid("已选 " + SourceSel.Count + " / " + Sources.Count + " 个", p.F(11), Th.Muted, x + 22, cardTop + 30);
+                float bx = x + 140;
+                Button(p, bx, cardTop + 12, 62, "全选", "sall", 0, false);
+                Button(p, bx + 70, cardTop + 12, 62, "反选", "sinvert", 0, false);
+                Button(p, bx + 140, cardTop + 12, 62, "启用", "senable", 0, false);
+                Button(p, bx + 210, cardTop + 12, 62, "停用", "sdisable", 0, false);
+                Button(p, bx + 280, cardTop + 12, 66, "删除", "sdel", 0, true);
+                y = cardTop + 58 + 12;
+            }
+
             float h = 44 + Sources.Count * 54 + 8;
             cardTop = y;
-            CardBox(p, x, right, cardTop, h, "已导入 " + Sources.Count + " 个");
+            CardBox(p, x, right, cardTop, h, "已导入 " + Sources.Count + " 个" + (SourceBatch ? " · 已选 " + SourceSel.Count : ""));
+            Button(p, right - 110, cardTop + 6, 96, SourceBatch ? "完成" : "批量管理", "sourcebatch", 0, false);
             for (int i = 0; i < Sources.Count; i++)
             {
                 SourceDef s = Sources[i];
                 RectangleF r = new RectangleF(x + 14, cardTop + 44 + i * 54, right - x - 28, 48);
-                if (HoverPanel == 70 + i) p.FillRound(Th.Hover, r, 8);
-                p.TextMid(s.Name, p.F(12, true), Th.Ink, r.X + 12, r.Y + 16);
-                p.TextMid(s.Host, p.F(10), Th.Faint, r.X + 12, r.Y + 34);
-                p.TextMid(s.Enabled ? "已启用" : "已停用", p.F(10), s.Enabled ? Th.Accent : Th.Faint, r.Right - 170, r.Y + 24);
-                Button(p, r.Right - 96, r.Y + 7, 82, s.Enabled ? "停用" : "启用", "togglesource", i, false);
+                if (r.Bottom < 44 - 60 || r.Y > Hh + 60) continue;
+                bool sel = SourceBatch && SourceSel.Contains(SourceKey(s));
+                if (sel) p.FillRound(Th.AccentSoft, r, 8);
+                else if (HoverPanel == 70 + i) p.FillRound(Th.Hover, r, 8);
+                if (SourceBatch)
+                {
+                    RectangleF cb = new RectangleF(r.X + 10, r.Y + 14, 20, 20);
+                    p.FillRound(sel ? Th.Accent : Th.Panel, cb, 5);
+                    p.Stroke(sel ? Th.Accent : Th.Line, cb, 5, 1.2f);
+                    if (sel) p.DrawIcon(Glyph.Check, new RectangleF(cb.X + 4, cb.Y + 4, 12, 12), Color.White, 1.6f);
+                }
+                float nameX = r.X + (SourceBatch ? 42 : 12);
+                float textMax = Math.Max(80, r.Width - (SourceBatch ? 58 : 214));
+                p.TextMid(p.Truncate(CleanLabel(s.Name), p.F(12, true), textMax), p.F(12, true), Th.Ink, nameX, r.Y + 16);
+                p.TextMid(p.Truncate(s.Host, p.F(10), textMax), p.F(10), Th.Faint, nameX, r.Y + 34);
+                if (SourceBatch)
+                {
+                    SetHit(r, "sselrow", i);
+                }
+                else
+                {
+                    p.TextMidRight(s.Enabled ? "已启用" : "已停用", p.F(10), s.Enabled ? Th.Accent : Th.Faint, r.Right - 146, r.Y + 24);
+                    Button(p, r.Right - 136, r.Y + 7, 58, s.Enabled ? "停用" : "启用", "togglesource", i, false);
+                    Button(p, r.Right - 70, r.Y + 7, 58, "删除", "delsource", i, false);
+                }
             }
             return cardTop + h + 16;
         }
@@ -467,6 +529,71 @@ namespace Lamplight
             for (int i = SetHits.Count - 1; i >= 0; i--)
                 if (((RectangleF)SetHits[i][0]).Contains(m)) return i;
             return -1;
+        }
+
+        public void SourceSelectAll(bool on)
+        {
+            SourceSel.Clear();
+            if (on) foreach (SourceDef s in Sources) SourceSel.Add(SourceKey(s));
+            Invalidate();
+        }
+
+        public void SourceInvert()
+        {
+            HashSet<string> next = new HashSet<string>(StringComparer.Ordinal);
+            foreach (SourceDef s in Sources) { string k = SourceKey(s); if (!SourceSel.Contains(k)) next.Add(k); }
+            SourceSel = next;
+            Invalidate();
+        }
+
+        public void SourceSetEnabled(bool on)
+        {
+            if (SourceSel.Count == 0) { ShowToast("先勾选书源"); return; }
+            foreach (SourceDef s in Sources) if (SourceSel.Contains(SourceKey(s))) s.Enabled = on;
+            SaveSources();
+            ShowToast(on ? "已启用选中的书源" : "已停用选中的书源");
+            Invalidate();
+        }
+
+        public int RemoveSelectedSources()
+        {
+            int n = 0;
+            List<SourceDef> keep = new List<SourceDef>();
+            foreach (SourceDef s in Sources)
+            {
+                if (SourceSel.Contains(SourceKey(s))) n++;
+                else keep.Add(s);
+            }
+            if (n == 0) return 0;
+            Online.Sources.Clear();
+            Online.Sources.AddRange(keep);
+            SourceSel.Clear();
+            SaveSources();
+            Invalidate();
+            return n;
+        }
+
+        void SourceDeleteSelected()
+        {
+            if (SourceSel.Count == 0) { ShowToast("先勾选书源"); return; }
+            int n = SourceSel.Count;
+            if (MessageBox.Show(this, "确定删除选中的 " + n + " 个书源？删除后不能恢复。", "删除书源",
+                MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+            int removed = RemoveSelectedSources();
+            ShowToast("已删除 " + removed + " 个书源");
+        }
+
+        void SourceDeleteOne(int index)
+        {
+            if (index < 0 || index >= Sources.Count) return;
+            SourceDef s = Sources[index];
+            if (MessageBox.Show(this, "确定删除书源「" + s.Name + "」？", "删除书源",
+                MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+            SourceSel.Remove(SourceKey(s));
+            Online.Sources.RemoveAt(index);
+            SaveSources();
+            ShowToast("已删除 1 个书源");
+            Invalidate();
         }
 
         bool SettingsClick(PointF m)
@@ -558,6 +685,23 @@ namespace Lamplight
                 if (pv != null) { s.Proxy = pv.Trim(); Store.Save(); ShowToast("代理已保存"); }
                 return true;
             }
+            if (a == "sourcebatch") { SourceBatch = !SourceBatch; SourceSel.Clear(); Invalidate(); return true; }
+            if (a == "sall") { SourceSelectAll(true); return true; }
+            if (a == "sinvert") { SourceInvert(); return true; }
+            if (a == "senable") { SourceSetEnabled(true); return true; }
+            if (a == "sdisable") { SourceSetEnabled(false); return true; }
+            if (a == "sdel") { SourceDeleteSelected(); return true; }
+            if (a == "sselrow")
+            {
+                if (v >= 0 && v < Sources.Count)
+                {
+                    string k = SourceKey(Sources[v]);
+                    if (!SourceSel.Remove(k)) SourceSel.Add(k);
+                    Invalidate();
+                }
+                return true;
+            }
+            if (a == "delsource") { SourceDeleteOne(v); return true; }
             if (a == "togglesource") { if (v >= 0 && v < Sources.Count) { Sources[v].Enabled = !Sources[v].Enabled; SaveSources(); Invalidate(); } return true; }
             return true;
         }

@@ -55,7 +55,7 @@ namespace Lamplight
             Cursor = Cursors.WaitCursor;
             try
             {
-                text = Online.Get(url, "utf-8");
+                text = Online.Get(url, "utf-8", null, 120000);
                 bytes = string.IsNullOrEmpty(text) ? 0 : Encoding.UTF8.GetByteCount(text);
             }
             catch (Exception ex)
@@ -81,13 +81,14 @@ namespace Lamplight
         // 供命令行测试使用：下载并导入，不弹窗
         public int ImportUrl(string url)
         {
-            string text = Online.Get(url, "utf-8");
+            string text = Online.Get(url, "utf-8", null, 120000);
             ImportText(text, url, string.IsNullOrEmpty(text) ? 0 : Encoding.UTF8.GetByteCount(text), false);
             return LastImportAdded;
         }
 
         void ImportText(string text, string label, long bytes, bool interactive)
         {
+            text = (text ?? "").TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
             int added = 0, dup = 0, parsed = 0;
             StringBuilder diag = new StringBuilder();
             diag.AppendLine("source=" + label);

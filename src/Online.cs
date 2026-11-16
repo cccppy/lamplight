@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -56,6 +57,9 @@ namespace Lamplight
         {
             // .NET 4.8 默认走系统 TLS；部分机器仍是 TLS 1.0 默认值，显式加上 1.2
             try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch { }
+            // 并行搜索同一个站点时，默认每主机 2 个连接会成为瓶颈
+            try { ServicePointManager.DefaultConnectionLimit = 64; } catch { }
+            try { ServicePointManager.Expect100Continue = false; } catch { }
         }
 
         public static void Init(string dataDir)
@@ -210,17 +214,20 @@ namespace Lamplight
         }
 
         // ------------------------------------------------------------ HTTP
-        public static string Get(string url, string charset) { return Get(url, charset, null); }
+        public static string Get(string url, string charset) { return Get(url, charset, null, 30000); }
 
-        public static string Get(string url, string charset, string referer)
+        public static string Get(string url, string charset, string referer) { return Get(url, charset, referer, 30000); }
+
+        public static string Get(string url, string charset, string referer, int timeoutMs)
         {
             try
             {
                 HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
                 req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Lamplight/0.2";
                 if (!string.IsNullOrEmpty(referer)) { try { req.Referer = referer; } catch { } }
-                req.Timeout = 30000;
-                req.ReadWriteTimeout = 30000;
+                req.Timeout = Math.Max(2000, timeoutMs);
+                req.ReadWriteTimeout = Math.Max(2000, timeoutMs);
+                try { req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate; } catch { }
                 req.AllowAutoRedirect = true;
                 req.KeepAlive = false;
                 string proxy = Store.Lib.Settings.Proxy;
@@ -236,13 +243,49 @@ namespace Lamplight
                     byte[] buf = new byte[16384];
                     int n;
                     while ((n = st.Read(buf, 0, buf.Length)) > 0) ms.Write(buf, 0, n);
-                    return Decode(ms.ToArray(), charset);
+                    return Decode(Unwrap(ms.ToArray(), res.ContentEncoding), charset);
                 }
             }
             catch (Exception ex)
             {
                 throw new Exception("网络请求失败：" + ex.Message);
             }
+        }
+
+        /// <summary>有些书源站无视 Accept-Encoding 一律 gzip；按内容魔数兜底解压。</summary>
+        public static byte[] Unwrap(byte[] data, string contentEncoding)
+        {
+            if (data == null || data.Length < 2) return data;
+            string enc = (contentEncoding ?? "").ToLowerInvariant();
+            try
+            {
+                if ((data[0] == 0x1f && data[1] == 0x8b) || enc.Contains("gzip"))
+                {
+                    using (MemoryStream input = new MemoryStream(data))
+                    using (GZipStream gz = new GZipStream(input, CompressionMode.Decompress))
+                    using (MemoryStream output = new MemoryStream())
+                    {
+                        byte[] buf = new byte[16384];
+                        int n;
+                        while ((n = gz.Read(buf, 0, buf.Length)) > 0) output.Write(buf, 0, n);
+                        return output.ToArray();
+                    }
+                }
+                if (enc.Contains("deflate"))
+                {
+                    using (MemoryStream input = new MemoryStream(data))
+                    using (DeflateStream df = new DeflateStream(input, CompressionMode.Decompress))
+                    using (MemoryStream output = new MemoryStream())
+                    {
+                        byte[] buf = new byte[16384];
+                        int n;
+                        while ((n = df.Read(buf, 0, buf.Length)) > 0) output.Write(buf, 0, n);
+                        return output.ToArray();
+                    }
+                }
+            }
+            catch { }
+            return data;
         }
 
         static string Decode(byte[] data, string charset)
@@ -268,6 +311,7 @@ namespace Lamplight
                 }
                 catch { }
             }
+            if (s.Length > 0 && s[0] == '\uFEFF') s = s.Substring(1);
             return s;
         }
 
@@ -372,26 +416,41 @@ namespace Lamplight
             return new List<HNode>();
         }
 
-        public static string Post(string url, string body, string charset)
+        public static string Post(string url, string body, string charset) { return Post(url, body, charset, 12000); }
+
+        public static string Post(string url, string body, string charset, int timeoutMs)
         {
             HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
             req.Method = "POST";
             req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Lamplight/0.2";
-            req.Timeout = 12000;
+            req.Timeout = Math.Max(2000, timeoutMs);
+            req.ReadWriteTimeout = Math.Max(2000, timeoutMs);
+            try { req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate; } catch { }
             req.ContentType = "application/x-www-form-urlencoded";
             byte[] data = Encoding.UTF8.GetBytes(body ?? "");
             req.ContentLength = data.Length;
             using (Stream st = req.GetRequestStream()) st.Write(data, 0, data.Length);
             using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
             using (Stream rs = resp.GetResponseStream())
-            using (StreamReader reader = new StreamReader(rs, ReadEncoding(charset)))
-                return reader.ReadToEnd();
+            {
+                MemoryStream ms = new MemoryStream();
+                byte[] buf = new byte[16384];
+                int n;
+                while ((n = rs.Read(buf, 0, buf.Length)) > 0) ms.Write(buf, 0, n);
+                return Decode(Unwrap(ms.ToArray(), resp.ContentEncoding), charset);
+            }
         }
 
         public static List<OnlineBook> Search(SourceDef src, string query, out string error)
         {
             error = null;
             List<OnlineBook> list = new List<OnlineBook>();
+            string probe = src.IsXPath ? src.QueryUrl : src.SearchUrl;
+            if (string.IsNullOrEmpty(probe) || probe.TrimStart().StartsWith("<js>", StringComparison.OrdinalIgnoreCase))
+            {
+                error = "搜索地址是 JS 或为空";
+                return list;
+            }
             try
             {
                 string url = src.IsXPath ? src.QueryUrl : src.SearchUrl;
@@ -404,9 +463,9 @@ namespace Lamplight
                     string body = src.QueryBody.Replace("{{key}}", Uri.EscapeDataString(query))
                                                .Replace("{q}", Uri.EscapeDataString(query))
                                                .Replace("{{page}}", "1");
-                    html = Post(url, body, src.Charset ?? "utf-8");
+                    html = Post(url, body, src.Charset ?? "utf-8", 8000);
                 }
-                else html = Get(url, src.Charset ?? "utf-8");
+                else html = Get(url, src.Charset ?? "utf-8", null, 8000);
                 if (src.IsXPath)
                 {
                     HNode root = HtmlLite.Parse(html);

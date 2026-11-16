@@ -161,6 +161,20 @@ namespace Lamplight
             if (mode == "settings-look") { Current = View.Settings; SettingsSection = 1; }
             if (mode == "settings-keys") { Current = View.Settings; SettingsSection = 2; }
             if (mode == "settings-sources") { Current = View.Settings; SettingsSection = 3; }
+            if (mode == "settings-sources-batch")
+            {
+                Current = View.Settings; SettingsSection = 3;
+                string[] names = { "笔趣阁测试", "书趣阁", "顶点小说", "长夜书城", "旧城文库" };
+                for (int si = 0; si < names.Length; si++)
+                {
+                    bool has = false;
+                    foreach (SourceDef sx in Online.Sources) if (sx.Name == names[si]) has = true;
+                    if (!has) Online.Sources.Add(new SourceDef { Id = "demobatch" + si, Name = names[si], Host = "http://demo" + si + ".example.com", Enabled = si % 2 == 0 });
+                }
+                SourceBatch = true;
+                SourceSel.Clear();
+                foreach (SourceDef sx in Online.Sources) { SourceSel.Add(sx.Id); if (SourceSel.Count >= 2) break; }
+            }
             if (mode == "settings-about") { Current = View.Settings; SettingsSection = 4; }
             if (mode == "online") Current = View.Online;
             if (mode == "online-results" || mode == "online-toc")

@@ -417,6 +417,28 @@ Check("长段落分句", lcover && lpos == longPara.Length && lmax <= 110, lp.Co
             f.Current = View.Online;
             f.SyncMinSize();
 
+            // 6.924) 并行搜索：多个源同时搜完，结果合并
+            var parSaved = new System.Collections.Generic.List<SourceDef>(Online.Sources);
+            Online.Sources.Clear();
+            for (int pi = 0; pi < 8; pi++)
+            {
+                SourceDef ps = Online.ParseBsJson(MockOnline.BsJson())[0];
+                ps.Id = "par" + pi;
+                ps.Name = "并行源" + pi;
+                Online.Sources.Add(ps);
+            }
+            f.OpenOnlineSearch();
+            f.OnlineBox.Text = "测试";
+            f.OnlineSearching = false;
+            System.Reflection.MethodInfo startSearch = typeof(MainForm).GetMethod("StartOnlineSearch", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            startSearch.Invoke(f, null);
+            for (int wi = 0; wi < 400 && f.OnlineSearching; wi++) { Application.DoEvents(); System.Threading.Thread.Sleep(10); }
+            Check("并行搜索完成并合并", !f.OnlineSearching && !f.OnlineBusy && f.OnlineGroups.Count > 0,
+                "busy=" + f.OnlineBusy + " groups=" + f.OnlineGroups.Count + " status=" + f.OnlineStatus);
+            Online.Sources.Clear();
+            Online.Sources.AddRange(parSaved);
+            f.GoShelf();
+
             // 6.925) 每个源预览目录：点章、拖动、关闭
             f.Current = View.Online;
             f.SyncMinSize();
@@ -635,6 +657,32 @@ Check("长段落分句", lcover && lpos == longPara.Length && lmax <= 110, lp.Co
             f.GoShelf();            f.RebuildShelf();
             Check("上次阅读第一", f.ShelfView.Count > 0 && string.Equals(f.ShelfView[0].Path, book.Path, StringComparison.OrdinalIgnoreCase),
                 f.ShelfView.Count > 0 ? f.ShelfView[0].DisplayName : "-");
+
+            // 7.58) 书源批量选择 / 启用 / 停用
+            var keepSources = new System.Collections.Generic.List<SourceDef>(Online.Sources);
+            Online.Sources.Clear();
+            for (int si = 0; si < 3; si++) Online.Sources.Add(new SourceDef { Id = "batch" + si, Name = "批量源" + si, Host = "http://x" + si, Enabled = true });
+            f.Current = View.Settings;
+            f.SettingsSection = 3;
+            f.SourceBatch = true;
+            f.SourceSel.Clear();
+            f.SourceSelectAll(true);
+            bool selAll = f.SourceSel.Count == 3;
+            f.SourceSetEnabled(false);
+            bool disabled = true;
+            foreach (SourceDef sx in Online.Sources) if (sx.Enabled) disabled = false;
+            f.SourceInvert();
+            bool inverted = f.SourceSel.Count == 0;
+            f.SourceSelectAll(true);
+            f.SourceSel.Remove("batch0");
+            int removedSrc = f.RemoveSelectedSources();
+            bool deleteOk = removedSrc == 2 && Online.Sources.Count == 1 && Online.Sources[0].Id == "batch0";
+            Online.Sources.Clear();
+            Online.Sources.AddRange(keepSources);
+            f.SourceBatch = false;
+            f.SourceSel.Clear();
+            Check("书源批量选择与启停", selAll && disabled && inverted, "sel=" + selAll + " off=" + disabled + " inv=" + inverted);
+            Check("书源批量删除", deleteOk, "removed=" + removedSrc + " left=" + Online.Sources.Count);
 
             // 7.6) 设置页右侧滚动条可拖
             f.Current = View.Settings;

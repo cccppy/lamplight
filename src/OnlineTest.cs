@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using System.Web.Script.Serialization;
 
@@ -49,6 +50,19 @@ namespace Lamplight
             List<string> sIssues = new List<string>();
             List<SourceDef> sConv = Legado.Convert(singleSample, sIssues);
             Check("Legado 单条", sConv.Count == 1, sConv.Count + " 条 / " + string.Join(";", sIssues.ToArray()));
+
+            // gzip 响应（书源站常无视 Accept-Encoding 一律压缩）
+            byte[] plain = Encoding.UTF8.GetBytes(legadoSample);
+            byte[] gz;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                using (GZipStream g = new GZipStream(ms, CompressionMode.Compress, true)) g.Write(plain, 0, plain.Length);
+                gz = ms.ToArray();
+            }
+            string ungz = Encoding.UTF8.GetString(Online.Unwrap(gz, null));
+            Check("gzip 书源自动解压", ungz.Contains("bookSourceName") && ungz.Length == legadoSample.Length,
+                "gz=" + gz.Length + " → " + ungz.Length);
+            Check("非压缩内容原样返回", Online.Unwrap(plain, null).Length == plain.Length, plain.Length + " B");
 
             Check("Legado 转换", lConv.Count == 1 && lConv[0].QueryUrl.Contains("{{key}}") && lConv[0].ContentXPath != null,
                 lConv.Count + " 个 / " + string.Join(";", lIssues.ToArray()));

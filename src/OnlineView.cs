@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Lamplight
@@ -643,7 +644,7 @@ namespace Lamplight
             OnlineKey = q;
             OnlineBusy = true;
             OnlineSearching = true;
-            OnlineStatus = "正在 " + enabled.Count + " 个书源中搜索…";
+            OnlineStatus = "正在 " + enabled.Count + " 个书源中并行搜索…";
             OnlineGroups = new List<OnlineGroup>();
             OnlineExpanded = -1;
             OnlineScroll = 0;
@@ -651,30 +652,57 @@ namespace Lamplight
 
             ThreadPool.QueueUserWorkItem(delegate
             {
+                int total = enabled.Count;
                 List<OnlineBook> all = new List<OnlineBook>();
-                int done = 0, failed = 0;
-                foreach (SourceDef src in enabled)
+                object gate = new object();
+                int done = 0, failed = 0, lastPost = 0;
+
+                Action<bool> publish = delegate(bool force)
                 {
-                    if (token != OnlineToken) return;
-                    string err;
-                    List<OnlineBook> part = Online.Search(src, q, out err);
-                    if (err != null) failed++;
-                    else all.AddRange(part);
-                    done++;
+                    List<OnlineBook> snapshot;
+                    int d, f;
+                    lock (gate)
+                    {
+                        if (!force && Environment.TickCount - lastPost < 400) return;
+                        lastPost = Environment.TickCount;
+                        d = done; f = failed;
+                        snapshot = new List<OnlineBook>(all);
+                    }
                     try
                     {
-                        int d = done, f2 = failed;
-                        List<OnlineBook> snapshot = new List<OnlineBook>(all);
                         BeginInvoke((Action)delegate
                         {
                             if (token != OnlineToken) return;
                             BuildGroups(snapshot, q);
-                            OnlineStatus = "已搜索 " + d + "/" + enabled.Count + " 个源 · " + snapshot.Count + " 条" + (f2 > 0 ? "（" + f2 + " 个失败）" : "");
+                            OnlineStatus = "已搜 " + d + "/" + total + " 个源 · " + snapshot.Count + " 条" + (f > 0 ? " · " + f + " 个失败" : "");
                             Invalidate();
                         });
                     }
                     catch { }
+                };
+
+                try
+                {
+                    Parallel.For(0, total, new ParallelOptions { MaxDegreeOfParallelism = 20 }, delegate(int i)
+                    {
+                        if (token != OnlineToken) return;
+                        SourceDef src = enabled[i];
+                        string err = null;
+                        List<OnlineBook> part = null;
+                        try { part = Online.Search(src, q, out err); }
+                        catch (Exception ex) { err = ex.Message; }
+                        lock (gate)
+                        {
+                            if (token != OnlineToken) return;
+                            if (err != null || part == null) failed++;
+                            else all.AddRange(part);
+                            done++;
+                        }
+                        publish(false);
+                    });
                 }
+                catch { }
+
                 try
                 {
                     BeginInvoke((Action)delegate
