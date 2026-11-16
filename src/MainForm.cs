@@ -555,7 +555,7 @@ namespace Lamplight
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (CapturingAction != null) return HandleKey(keyData);
-            if (ActiveControl is TextBox) return base.ProcessCmdKey(ref msg, keyData);
+            if (ActiveControl is TextBox && ActiveControl.Visible) return base.ProcessCmdKey(ref msg, keyData);
             if (HandleKey(keyData)) return true;
             return base.ProcessCmdKey(ref msg, keyData);
         }
@@ -595,7 +595,31 @@ namespace Lamplight
                 string action = KeyMap.FindAction(key);
                 if (action != null && RunAction(action)) return true;
             }
+            // 快捷键表被清空或值损坏时，方向键仍按默认导航工作
+            if ((keyData & (Keys.Control | Keys.Alt | Keys.Shift)) == Keys.None)
+            {
+                switch (keyData & Keys.KeyCode)
+                {
+                    case Keys.Left: if (NavBroken("prevpage")) return RunAction("prevpage"); break;
+                    case Keys.Right: if (NavBroken("nextpage")) return RunAction("nextpage"); break;
+                    case Keys.Up: if (NavBroken("scrollup")) return RunAction("scrollup"); break;
+                    case Keys.Down: if (NavBroken("scrolldown")) return RunAction("scrolldown"); break;
+                    case Keys.PageUp: if (NavBroken("pageup")) return RunAction("pageup"); break;
+                    case Keys.PageDown: if (NavBroken("pagedown")) return RunAction("pagedown"); break;
+                    case Keys.Home: if (NavBroken("home")) return RunAction("home"); break;
+                    case Keys.End: if (NavBroken("end")) return RunAction("end"); break;
+                }
+            }
             return false;
+        }
+
+        /// <summary>导航动作的快捷键为空或无法解析时，认为组合键丢失。</summary>
+        static bool NavBroken(string action)
+        {
+            string v = KeyMap.Get(action);
+            if (string.IsNullOrEmpty(v)) return true;
+            Keys tmp;
+            return !KeyMap.TryParse(v, out tmp);
         }
 
         void TogglePanel(Panel panel)

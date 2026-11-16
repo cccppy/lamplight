@@ -67,6 +67,17 @@ namespace Lamplight
             Check("Legado 转换", lConv.Count == 1 && lConv[0].QueryUrl.Contains("{{key}}") && lConv[0].ContentXPath != null,
                 lConv.Count + " 个 / " + string.Join(";", lIssues.ToArray()));
 
+            string cssSample = "[{\"bookSourceName\":\"CSS\",\"bookSourceUrl\":\"http://x/\",\"searchUrl\":\"/s?q={{key}}\","
+                + "\"ruleSearch\":{\"bookList\":\"#list li:eq(1)\",\"name\":\"a@text\",\"bookUrl\":\"a@href\"},"
+                + "\"ruleToc\":{\"chapterList\":\"#toc>dd:nth-child(n+2)\",\"chapterName\":\"text\",\"chapterUrl\":\"href\"},"
+                + "\"ruleContent\":{\"content\":\"div#c>p:not(.x)\"}}]";
+            List<string> cssIssues = new List<string>();
+            List<SourceDef> cssConv = Legado.Convert(cssSample, cssIssues);
+            bool cssOk = cssConv.Count == 1 && cssConv[0].BookNameXPath.Contains("[2]")
+                      && cssConv[0].ChapterTitleXPath.Contains("position() >= 2")
+                      && cssConv[0].ContentXPath.Contains("not(contains(@class");
+            Check("Legado 扩展选择器", cssOk, cssConv.Count == 0 ? string.Join(";", cssIssues.ToArray()) : cssConv[0].BookNameXPath + " | " + cssConv[0].ChapterTitleXPath + " | " + cssConv[0].ContentXPath);
+
             Check("书源兼容根数组", arrRoot.Count == 1, arrRoot.Count + " 条");
             Check("书源兼容别名字段", altKeys.Count == 1 && altKeys[0].Name == "B", altKeys.Count + " 条");
             Check("缺规则有提示", noRule.Count == 0 && Online.LastIssues.Count > 0, Online.LastIssues.Count + " 条原因");

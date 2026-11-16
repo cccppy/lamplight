@@ -129,9 +129,16 @@ namespace Lamplight
 
                         try { File.AppendAllText(Path.Combine(Tts.TempDir(), "tts-log.txt"),
                             "idx=" + idx + " s=" + s + " len=" + len + " wav=" + (cur.Wav == null ? 0 : cur.Wav.Length)
-                            + " text=" + body.Substring(s, Math.Min(24, len)).Replace("\r", " ").Replace("\n", " ") + "\r\n",
+                            + " text=" + body.Substring(s, Math.Min(24, len)).Replace("\r", " ").Replace("\n", " ") + (string.IsNullOrEmpty(cur.Err) ? "" : " src=" + cur.Err) + "\r\n",
                             Encoding.UTF8); } catch { }
                         bool playedOk = Tts.PlayWav(cur.Wav);
+                        if (playedOk && Tts.LastPlayTooFast)
+                        {
+                            // waveOut 提前返回（短 WAV 上偶发），用同步播放器补一遍，避免句子被吞
+                            playedOk = Tts.ReplaySync(cur.Wav);
+                            try { File.AppendAllText(Path.Combine(Tts.TempDir(), "tts-log.txt"),
+                                "  replay-sync=" + playedOk + " err=" + Tts.LastPlayError + "\r\n", Encoding.UTF8); } catch { }
+                        }
                         try { File.AppendAllText(Path.Combine(Tts.TempDir(), "tts-log.txt"),
                             "  play=" + playedOk + " fast=" + Tts.LastPlayTooFast + " err=" + Tts.LastPlayError + "\r\n", Encoding.UTF8); } catch { }
                         if (TtsStop || gen != TtsGen) break;
@@ -233,6 +240,17 @@ namespace Lamplight
                                              .Replace('"', ' ').Replace('「', ' ').Replace('」', ' ');
                         alt = alt.Trim();
                         if (alt.Length > 0 && Tts.SynthChain(alt, rate, vol, voice, out wav, out err))
+                        {
+                            slot.Ok = true;
+                            slot.Err = null;
+                        }
+                    }
+                    if (!slot.Ok)
+                    {
+                        // 某些引擎对句末标点敏感：去掉首尾标点再试，宁可少一个停顿也不能整句跳过
+                        string alt2 = sentence.Trim().Trim('“','”','「','」','『','』','（','）','(',')','【','】','《','》','〈','〉','"','\'');
+                        alt2 = alt2.Trim('。','！','？','!','?','…','；',';','，',',','、','：',':').Trim();
+                        if (alt2.Length > 0 && alt2 != sentence && Tts.SynthChain(alt2, rate, vol, voice, out wav, out err))
                         {
                             slot.Ok = true;
                             slot.Err = null;

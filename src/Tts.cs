@@ -22,6 +22,7 @@ namespace Lamplight
         static string[] _voices = new string[0];
         static bool _available;
         static readonly object Gate = new object();
+        static readonly object HelperGate = new object();
         static Assembly _speech;
         static bool _speechTried;
         static SoundPlayer _player;
@@ -165,6 +166,8 @@ namespace Lamplight
                         v.Speak(text, 0);
                         object data = ms.GetData();
                         result = data as byte[];
+                        if (result != null && result.Length > 0 && !HasRiff(result))
+                            result = WrapPcm16(result, 22050, 1); // Format.Type=22：22.05kHz/16bit/单声道
                     }
                 }
                 catch (Exception ex) { err = ex.Message; }
@@ -190,6 +193,9 @@ namespace Lamplight
             error = null;
             try
             {
+                // 同时跑两个 32 位助手会偶发抢不到语音，导致奇数句回退到别的合成路径
+                lock (HelperGate)
+                {
                 string dir = AppDomain.CurrentDomain.BaseDirectory;
                 string helper = Path.Combine(dir, "LamplightTts32.exe");
                 if (!File.Exists(helper)) { error = "缺少 LamplightTts32.exe"; return false; }
@@ -222,7 +228,11 @@ namespace Lamplight
                 }
                 if (!File.Exists(outwav)) { error = "32 位助手没有生成文件"; return false; }
                 wav = File.ReadAllBytes(outwav);
+                // 助手偶尔写出长度字段损坏的 WAV，读入后立刻修复，避免播放阶段才报“波形头已损坏”
+                byte[] fixedWav = CanonicalWav(wav);
+                if (fixedWav != null) wav = fixedWav;
                 return wav.Length > 44;
+                }
             }
             catch (Exception ex) { error = ex.Message; return false; }
         }
@@ -424,19 +434,11 @@ namespace Lamplight
             try
             {
                 if (wav == null || wav.Length < 48) return wav;
-                int fmtOff = -1, dataOff = -1, dataSize = 0;
-                int i = 12;
-                while (i + 8 <= wav.Length)
-                {
-                    string id = "" + (char)wav[i] + (char)wav[i + 1] + (char)wav[i + 2] + (char)wav[i + 3];
-                    int size = BitConverter.ToInt32(wav, i + 4);
-                    if (size < 0) return wav;
-                    if (id == "fmt ") fmtOff = i + 8;
-                    else if (id == "data") { dataOff = i + 8; dataSize = Math.Min(size, wav.Length - dataOff); break; }
-                    i += 8 + size + (size & 1);
-                }
-                if (fmtOff < 0 || dataOff < 0 || dataSize <= 0) return wav;
-                if (fmtOff + 16 > wav.Length) return wav;
+                byte[] canon = CanonicalWav(wav);
+                if (canon == null) return wav;
+                wav = canon;
+                int fmtOff = 20, dataOff = 44, dataSize = wav.Length - 44;
+                if (dataSize <= 0) return wav;
 
                 int formatTag = BitConverter.ToInt16(wav, fmtOff);
                 int channels = BitConverter.ToInt16(wav, fmtOff + 2);
@@ -494,6 +496,90 @@ namespace Lamplight
             catch { return wav; }
         }
 
+        static bool HasRiff(byte[] d)
+        {
+            return d != null && d.Length >= 12 && d[0] == (byte)'R' && d[1] == (byte)'I'
+                && d[2] == (byte)'F' && d[3] == (byte)'F';
+        }
+
+        /// <summary>把裸 PCM16 包成 44 字节 WAV 头。</summary>
+        public static byte[] WrapPcm16(byte[] pcm, int rate, int ch)
+        {
+            if (pcm == null || pcm.Length < 2) return pcm;
+            int align = Math.Max(1, ch * 2);
+            int size = pcm.Length - (pcm.Length % align);
+            if (size <= 0) return pcm;
+            byte[] o = new byte[44 + size];
+            Encoding.ASCII.GetBytes("RIFF").CopyTo(o, 0);
+            BitConverter.GetBytes(36 + size).CopyTo(o, 4);
+            Encoding.ASCII.GetBytes("WAVEfmt ").CopyTo(o, 8);
+            BitConverter.GetBytes(16).CopyTo(o, 16);
+            BitConverter.GetBytes((short)1).CopyTo(o, 20);
+            BitConverter.GetBytes((short)ch).CopyTo(o, 22);
+            BitConverter.GetBytes(rate).CopyTo(o, 24);
+            BitConverter.GetBytes(rate * align).CopyTo(o, 28);
+            BitConverter.GetBytes((short)align).CopyTo(o, 32);
+            BitConverter.GetBytes((short)16).CopyTo(o, 34);
+            Encoding.ASCII.GetBytes("data").CopyTo(o, 36);
+            BitConverter.GetBytes(size).CopyTo(o, 40);
+            Array.Copy(pcm, 0, o, 44, size);
+            return o;
+        }
+
+        /// <summary>把任意带附加块/长度字段损坏的 PCM16 WAV 重排成 44 字节头；非 PCM16 返回 null。</summary>
+        public static byte[] CanonicalWav(byte[] wav)
+        {
+            try
+            {
+                if (wav == null || wav.Length < 44) return null;
+                int fmtOff = -1, dataOff = -1, dataSize = 0;
+                int i = 12;
+                while (i + 8 <= wav.Length)
+                {
+                    string id = "" + (char)wav[i] + (char)wav[i + 1] + (char)wav[i + 2] + (char)wav[i + 3];
+                    int size = BitConverter.ToInt32(wav, i + 4);
+                    if (id == "fmt " && size >= 16 && i + 8 + 16 <= wav.Length) fmtOff = i + 8;
+                    else if (id == "data" && dataOff < 0)
+                    {
+                        dataOff = i + 8;
+                        // 助手写出的 data 长度偶发大于实际文件：以实际剩余字节为准
+                        dataSize = (size > 0 && dataOff + size <= wav.Length) ? size : wav.Length - dataOff;
+                    }
+                    if (fmtOff >= 0 && dataOff >= 0) break;
+                    if (size <= 0 || i + 8 + size > wav.Length) break;
+                    i += 8 + size + (size & 1);
+                }
+                if (dataOff < 0 && wav.Length > 44) { dataOff = 44; dataSize = wav.Length - 44; }
+                if (fmtOff < 0 && dataOff > 0 && wav.Length >= 36) fmtOff = 20;
+                if (fmtOff < 0 || dataOff < 0 || dataSize <= 0) return null;
+
+                int tag = BitConverter.ToInt16(wav, fmtOff);
+                int ch = BitConverter.ToInt16(wav, fmtOff + 2);
+                int rate = BitConverter.ToInt32(wav, fmtOff + 4);
+                int align = BitConverter.ToInt16(wav, fmtOff + 12);
+                int bits = BitConverter.ToInt16(wav, fmtOff + 14);
+                if ((tag != 1 && tag != -2) || ch <= 0 || rate <= 0 || bits != 16 || align <= 0) return null;
+                int size2 = dataSize - (dataSize % align);
+                if (size2 <= 0) return null;
+                byte[] o = new byte[44 + size2];
+                Encoding.ASCII.GetBytes("RIFF").CopyTo(o, 0);
+                BitConverter.GetBytes(36 + size2).CopyTo(o, 4);
+                Encoding.ASCII.GetBytes("WAVEfmt ").CopyTo(o, 8);
+                BitConverter.GetBytes(16).CopyTo(o, 16);
+                BitConverter.GetBytes((short)1).CopyTo(o, 20);
+                BitConverter.GetBytes((short)ch).CopyTo(o, 22);
+                BitConverter.GetBytes(rate).CopyTo(o, 24);
+                BitConverter.GetBytes(rate * align).CopyTo(o, 28);
+                BitConverter.GetBytes((short)align).CopyTo(o, 32);
+                BitConverter.GetBytes((short)bits).CopyTo(o, 34);
+                Encoding.ASCII.GetBytes("data").CopyTo(o, 36);
+                BitConverter.GetBytes(size2).CopyTo(o, 40);
+                Array.Copy(wav, dataOff, o, 44, size2);
+                return o;
+            }
+            catch { return null; }
+        }
+
         public static double WavSeconds(byte[] wav)
         {
             try
@@ -533,15 +619,24 @@ namespace Lamplight
             LastPlayError = "";
             if (wav == null || wav.Length < 44) { LastPlayError = "WAV 为空"; return false; }
 
-            byte[] orig = wav;
-            byte[] trimmed = TrimSilence(wav);
-            // 裁剪后的文件播放器不认，就退回原始 WAV，宁可多留一点静音也不能没声
-            if (!ReferenceEquals(trimmed, orig) && !WavLoadable(trimmed)) trimmed = orig;
+            // 先把损坏的头修好，再裁剪；绝不把原始坏头当回退
+            byte[] canon0 = CanonicalWav(wav);
+            if (canon0 == null && !HasRiff(wav))
+            {
+                // SAPI 内存流偶发返回裸 PCM（无 RIFF 头），按 22.05kHz/16bit/mono 补头
+                byte[] wrapped = WrapPcm16(wav, 22050, 1);
+                byte[] c2 = CanonicalWav(wrapped);
+                if (c2 != null) { wav = c2; canon0 = c2; }
+            }
+            byte[] baseWav = canon0 != null ? canon0 : wav;
+            byte[] trimmed = TrimSilence(baseWav);
+            if (!WavLoadable(trimmed)) trimmed = baseWav;
             wav = trimmed;
 
             DateTime t0 = DateTime.Now;
             bool ok = false;
-            if (WaveOut.Play(wav)) ok = true;
+            byte[] canon = CanonicalWav(wav);
+            if (canon != null && WaveOut.Play(canon)) ok = true;
             else if (!CancelPlayback)
             {
                 try
@@ -558,6 +653,23 @@ namespace Lamplight
             if (!ok && LastPlayError.Length == 0) LastPlayError = "waveOut 与 SoundPlayer 都失败";
             LastPlayTooFast = (DateTime.Now - t0).TotalMilliseconds < 200 && wav.Length > 20000;
             return ok;
+        }
+
+        /// <summary>waveOut 提前返回时，用 SoundPlayer 同步重放，避免吞掉句子。</summary>
+        public static bool ReplaySync(byte[] wav)
+        {
+            if (wav == null || wav.Length < 44) return false;
+            try
+            {
+                byte[] canon = CanonicalWav(wav);
+                byte[] baseWav = canon != null ? canon : wav;
+                byte[] trimmed = TrimSilence(baseWav);
+                if (!WavLoadable(trimmed)) trimmed = baseWav;
+                using (MemoryStream ms = new MemoryStream(trimmed))
+                using (SoundPlayer sp = new SoundPlayer(ms)) { sp.PlaySync(); }
+                return true;
+            }
+            catch (Exception ex) { LastPlayError = "重放: " + ex.Message; return false; }
         }
 
         public static void StopPlayback()
@@ -705,7 +817,8 @@ namespace Lamplight
             {
                 char c = text[i];
                 bool brk = c == '\n' || c == '\r' ||
-                           c == '。' || c == '！' || c == '？' || c == '!' || c == '?' || c == '…';
+                           c == '。' || c == '！' || c == '？' || c == '!' || c == '?' || c == '…' ||
+                           c == '；' || c == ';';
                 if (!brk) continue;
 
                 int end = i + 1;
@@ -717,6 +830,12 @@ namespace Lamplight
             }
             if (start < text.Length) AddSpan(spans, text, start, text.Length - start);
             if (spans.Count == 0) spans.Add(new int[] { 0, text.Length });
+            // 补齐句间空白/标点，保证每个字符都属于某一句，避免“跳句”
+            for (int i = 1; i < spans.Count; i++)
+            {
+                int prevEnd = spans[i - 1][0] + spans[i - 1][1];
+                if (spans[i][0] > prevEnd) spans[i - 1][1] += spans[i][0] - prevEnd;
+            }
             return CapSpans(spans, text, 110);
         }
 

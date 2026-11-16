@@ -196,6 +196,19 @@ namespace Lamplight
             Check("句末引号跟随前句", q2ok, q2.Count + " 句");
 
             Check("朗读分句", spans.Count == 4, spans.Count + " 句");
+            string punctText = "甲；乙？丙！丁…戊";
+            var punctSpans = Tts.Split(punctText);
+            int punctPos = 0; bool punctCover = true;
+            foreach (int[] psp in punctSpans) { if (psp[0] != punctPos) { punctCover = false; break; } punctPos = psp[0] + psp[1]; }
+            Check("问号分号都能断句", punctCover && punctPos == punctText.Length && punctSpans.Count >= 5,
+                punctSpans.Count + " 句, 覆盖 " + punctPos + "/" + punctText.Length);
+
+            // 快捷键表被清空时，方向键仍要能翻页
+            string keepNext = KeyMap.Get("nextpage");
+            KeyMap.Set("nextpage", "");
+            bool arrowWorked = f.HandleKey(Keys.Right);
+            KeyMap.Set("nextpage", keepNext);
+            Check("方向键默认仍可翻页", arrowWorked, "right=" + arrowWorked);
             string btext = "【他说。你好】后面还有。第二句！";
             List<int[]> brSpans = Tts.Split(btext);
             int bpos = 0; bool bcover = true;
@@ -255,6 +268,21 @@ namespace Lamplight
             try { string cp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ink-ext-test.wav"); System.IO.File.WriteAllBytes(cp, conv); using (System.Media.SoundPlayer spc = new System.Media.SoundPlayer(cp)) spc.Load(); }
             catch (Exception ex) { convOk = false; convErr = ex.Message; }
             Check("扩展格式转 PCM", convOk, convErr);
+
+            // 助手偶发写出“data 长度大于实际文件”的 WAV，要能修复后再播
+            byte[] badWav = (byte[])testWav.Clone();
+            BitConverter.GetBytes(badWav.Length + 4096).CopyTo(badWav, 40);
+            byte[] repaired = Tts.CanonicalWav(badWav);
+            bool repairedOk = repaired != null && repaired.Length == testWav.Length &&
+                              BitConverter.ToInt32(repaired, 40) == wraw.Length &&
+                              BitConverter.ToInt16(repaired, 20) == 1;
+            Check("损坏 WAV 头可修复", repairedOk, repaired == null ? "null" : repaired.Length + " B");
+            string badPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ink-bad-wav-test.wav");
+            byte[] badTrim = Tts.TrimSilence(badWav);
+            bool badPlayable = true; string badPlayErr = "";
+            try { System.IO.File.WriteAllBytes(badPath, badTrim); using (System.Media.SoundPlayer spb = new System.Media.SoundPlayer(badPath)) spb.Load(); }
+            catch (Exception ex) { badPlayable = false; badPlayErr = ex.Message; }
+            Check("损坏 WAV 修复后可播放", badPlayable && badTrim.Length > 44, badPlayErr);
 
 Check("裁剪 WAV 可被识别", twavValid, twavErr);
 
