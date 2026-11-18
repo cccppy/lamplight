@@ -527,6 +527,13 @@ namespace Lamplight
         void AutoTick()
         {
             if (Current != View.Reader || OpenPanel != Panel.None) return;
+            if (AtChapterEnd())
+            {
+                if (ChapterIndex < Chapters.Count - 1) { GoChapter(ChapterIndex + 1); return; }
+                AutoTimer.Stop();
+                ShowToast("自动翻页 · 已到最后一章");
+                return;
+            }
             ScrollY += 2.0f;
             ClampScroll();
             Invalidate();
@@ -643,7 +650,14 @@ namespace Lamplight
                     case "nextchapter": GoChapter(ChapterIndex + 1); return true;
                     case "prevchapter": GoChapter(ChapterIndex - 1); return true;
                     case "scrollup": ScrollY -= 60; ClampScroll(); Invalidate(); return true;
-                    case "scrolldown": ScrollY += 60; ClampScroll(); Invalidate(); return true;
+                    case "scrolldown":
+                        if (AtChapterEnd())
+                        {
+                            if (ChapterIndex < Chapters.Count - 1) GoChapter(ChapterIndex + 1);
+                            else ShowToast("已经是最后一章");
+                        }
+                        else { ScrollY += 60; ClampScroll(); Invalidate(); }
+                        return true;
                     case "home": ScrollY = 0; ClampScroll(); Invalidate(); return true;
                     case "end": ScrollY = 1e9f; ClampScroll(); Invalidate(); return true;
                     case "find": OpenFind(); return true;

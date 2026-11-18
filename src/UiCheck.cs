@@ -681,6 +681,26 @@ Check("长段落分句", lcover && lpos == longPara.Length && lmax <= 110, lp.Co
             f.ClientSize = new Size(1200, 780);
             f.ReflowReader();
 
+            // 7.56) 下键与自动翻页到章末都要进入下一章
+            int navKeep = f.ChapterIndex;
+            f.Current = View.Reader;
+            f.OpenPanel = Panel.None;
+            f.JumpTo(0, 0);
+            f.ScrollY = 1e9f;
+            f.ClampScroll();
+            bool navEnd = f.AtChapterEnd();
+            bool navDown = f.HandleKey(Keys.Down);
+            Check("下键到底进入下一章", navEnd && navDown && f.ChapterIndex == 1,
+                "end=" + navEnd + " ch=" + f.ChapterIndex);
+            f.JumpTo(0, 0);
+            f.ScrollY = 1e9f;
+            f.ClampScroll();
+            System.Reflection.MethodInfo autoTick = typeof(MainForm).GetMethod("AutoTick",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            autoTick.Invoke(f, null);
+            Check("自动翻页到底进入下一章", f.ChapterIndex == 1, "ch=" + f.ChapterIndex);
+            f.JumpTo(navKeep, 0);
+
             // 7) 排序：上次阅读第一
             f.GoShelf();            f.RebuildShelf();
             Check("上次阅读第一", f.ShelfView.Count > 0 && string.Equals(f.ShelfView[0].Path, book.Path, StringComparison.OrdinalIgnoreCase),
