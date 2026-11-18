@@ -699,6 +699,12 @@ Check("长段落分句", lcover && lpos == longPara.Length && lmax <= 110, lp.Co
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             autoTick.Invoke(f, null);
             Check("自动翻页到底进入下一章", f.ChapterIndex == 1, "ch=" + f.ChapterIndex);
+            f.JumpTo(1, 0);
+            f.ScrollY = 0;
+            f.ClampScroll();
+            bool navUp = f.HandleKey(Keys.Up);
+            Check("上键到底进入上一章", navUp && f.ChapterIndex == 0,
+                "ch=" + f.ChapterIndex + " y=" + (int)f.ScrollY);
             f.JumpTo(navKeep, 0);
 
             // 7) 排序：上次阅读第一

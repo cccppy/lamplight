@@ -244,6 +244,11 @@ namespace Lamplight
             return ScrollY + viewH >= HeadingH + Layout.Height - 8;
         }
 
+        public bool AtChapterStart()
+        {
+            return ScrollY <= 1f;
+        }
+
         public void NextPage()
         {
             if (Layout == null) return;

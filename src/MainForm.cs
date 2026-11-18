@@ -649,7 +649,22 @@ namespace Lamplight
                     case "pagedown": NextPage(); return true;
                     case "nextchapter": GoChapter(ChapterIndex + 1); return true;
                     case "prevchapter": GoChapter(ChapterIndex - 1); return true;
-                    case "scrollup": ScrollY -= 60; ClampScroll(); Invalidate(); return true;
+                    case "scrollup":
+                        if (AtChapterStart())
+                        {
+                            if (ChapterIndex > 0)
+                            {
+                                GoChapter(ChapterIndex - 1);
+                                ScrollY = 1e9f;
+                                ClampScroll();
+                                TrackChapter();
+                                SaveProgress();
+                                Invalidate();
+                            }
+                            else ShowToast("已经是第一章");
+                        }
+                        else { ScrollY -= 60; ClampScroll(); Invalidate(); }
+                        return true;
                     case "scrolldown":
                         if (AtChapterEnd())
                         {
