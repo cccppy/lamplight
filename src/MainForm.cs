@@ -625,6 +625,7 @@ namespace Lamplight
         {
             string v = KeyMap.Get(action);
             if (string.IsNullOrEmpty(v)) return true;
+            if (KeyMap.IsMouseCombo(v)) return false;
             Keys tmp;
             return !KeyMap.TryParse(v, out tmp);
         }
@@ -818,10 +819,39 @@ namespace Lamplight
             if (Hover != oldHover || HoverBtn != oldBtn || HoverPanel != oldPanel) Invalidate();
         }
 
+        /// <summary>把鼠标键录入当前正在改的快捷键。</summary>
+        public void CaptureMouseBinding(MouseButtons b)
+        {
+            if (CapturingAction == null) return;
+            string combo = KeyMap.FormatMouse(b);
+            if (combo == null) return;
+            string other = KeyMap.FindActionExcept(combo, CapturingAction);
+            if (other != null)
+            {
+                KeyMap.Set(other, "");
+                ShowToast("「" + KeyMap.Label(other) + "」的快捷键已被解除");
+            }
+            KeyMap.Set(CapturingAction, combo);
+            ShowToast("「" + KeyMap.Label(CapturingAction) + "」设为 " + KeyMap.Pretty(combo));
+            CapturingAction = null;
+            Invalidate();
+        }
+
+        /// <summary>鼠标键若绑定了动作，直接执行；返回是否已处理。</summary>
+        public bool HandleMouseAction(MouseButtons b)
+        {
+            string combo = KeyMap.FormatMouse(b);
+            if (combo == null) return false;
+            string action = KeyMap.FindAction(combo);
+            if (action == null) return false;
+            return RunAction(action);
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
             PointF m = ToLogical(e);
+            if (CapturingAction != null) { CaptureMouseBinding(e.Button); return; }
             if (Editing) { EndRename(true); }
 
             // 窗口按钮
@@ -894,6 +924,7 @@ namespace Lamplight
             if (Current == View.Reader && m.Y > BodyTop() && m.X > ContentLeft() - 20 && m.X < ContentLeft() + ContentWidth() + 20
                 && m.Y < ContentBottom())
             {
+                if (HandleMouseAction(e.Button)) return;
                 DownAt = m;
                 MaybeSelect = e.Button == MouseButtons.Left;
                 if (e.Button == MouseButtons.Right && Store.Lib.Settings.ClickMode == 0) PrevPage();

@@ -162,6 +162,22 @@ namespace Lamplight
             Check("改键后新键生效", moved1, "Δ=" + (int)(f.ScrollY - y1));
             KeyMap.Reset();
             Check("恢复默认快捷键", KeyMap.Get("nextpage") == "Right", KeyMap.Get("nextpage"));
+            KeyMap.Set("nextpage", "");
+            f.Current = View.Settings;
+            f.CapturingAction = "nextpage";
+            f.CaptureMouseBinding(MouseButtons.Right);
+            Check("鼠标右键可录入快捷键", KeyMap.Get("nextpage") == "MouseRight" && f.CapturingAction == null,
+                KeyMap.Get("nextpage"));
+            f.Current = View.Reader;
+            f.JumpTo(0, 0);
+            f.ScrollY = 0;
+            f.ClampScroll();
+            float mouseY0 = f.ScrollY;
+            int mouseCh0 = f.ChapterIndex;
+            bool mouseHandled = f.HandleMouseAction(MouseButtons.Right);
+            Check("鼠标右键执行绑定动作", mouseHandled && (f.ScrollY != mouseY0 || f.ChapterIndex != mouseCh0),
+                "handled=" + mouseHandled + " y=" + (int)f.ScrollY + " ch=" + f.ChapterIndex);
+            KeyMap.Reset();
 
             // 6.7) EPUB 解析
             string epubPath = Path.Combine(Store.DataDir, "test.epub");

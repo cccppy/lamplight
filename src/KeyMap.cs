@@ -145,6 +145,50 @@ namespace Lamplight
             return s;
         }
 
+        /// <summary>鼠标键名：MouseLeft/MouseRight/MouseMiddle/MouseX1/MouseX2。</summary>
+        public static string MouseName(MouseButtons b)
+        {
+            switch (b)
+            {
+                case MouseButtons.Left: return "MouseLeft";
+                case MouseButtons.Right: return "MouseRight";
+                case MouseButtons.Middle: return "MouseMiddle";
+                case MouseButtons.XButton1: return "MouseX1";
+                case MouseButtons.XButton2: return "MouseX2";
+            }
+            return null;
+        }
+
+        public static bool IsMouseCombo(string combo)
+        {
+            return !string.IsNullOrEmpty(combo) && combo.IndexOf("Mouse", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>把鼠标键与当前修饰键格式化成可保存的组合串。</summary>
+        public static string FormatMouse(MouseButtons b)
+        {
+            string name = MouseName(b);
+            if (name == null) return null;
+            List<string> parts = new List<string>();
+            Keys mods = Control.ModifierKeys & (Keys.Control | Keys.Alt | Keys.Shift);
+            if ((mods & Keys.Control) == Keys.Control) parts.Add("Ctrl");
+            if ((mods & Keys.Alt) == Keys.Alt) parts.Add("Alt");
+            if ((mods & Keys.Shift) == Keys.Shift) parts.Add("Shift");
+            parts.Add(name);
+            return string.Join("+", parts.ToArray());
+        }
+
+        /// <summary>显示用：MouseRight → 鼠标右键。</summary>
+        public static string Pretty(string combo)
+        {
+            if (string.IsNullOrEmpty(combo)) return combo;
+            string s = combo;
+            s = s.Replace("MouseLeft", "鼠标左键").Replace("MouseRight", "鼠标右键")
+                 .Replace("MouseMiddle", "鼠标中键").Replace("MouseX1", "鼠标侧键1")
+                 .Replace("MouseX2", "鼠标侧键2");
+            return s;
+        }
+
         public static bool TryParse(string combo, out Keys keyData)
         {
             keyData = Keys.None;

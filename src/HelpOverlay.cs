@@ -48,7 +48,7 @@ namespace Lamplight
             for (int i = 0; i < n; i++)
             {
                 if (i % 2 == 0) p.Fill(Th.Hover, new RectangleF(x + 20, ry - 3, pw - 40, 26));
-                string combo = KeyMap.Get(rows[i, 0]);
+                string combo = KeyMap.Pretty(KeyMap.Get(rows[i, 0]));
                 p.TextMid(string.IsNullOrEmpty(combo) ? "—" : combo, p.F(11.5f, true), Th.Ink, x + 30, ry + 10);
                 p.TextMid(rows[i, 1], p.F(11.5f), Th.Muted, x + 208, ry + 10);
                 ry += 26;

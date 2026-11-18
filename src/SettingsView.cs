@@ -370,8 +370,8 @@ namespace Lamplight
         {
             float cardTop = y;
             float h = 96 + KeyMap.Items.Count * 38;
-            CardBox(p, x, right, cardTop, h, "快捷键（点击任意一行修改；Esc 取消，Delete 清除）");
-            p.Text("改键后立即生效，保存到 library.json；F1 可随时查看。", p.F(10.5f), Th.Faint, x + 22, cardTop + 38);
+            CardBox(p, x, right, cardTop, h, "快捷键（点击任意一行修改，支持键盘和鼠标左右键；Esc 取消，Delete 清除）");
+            p.Text("改键后立即生效并保存；鼠标右键/中键/侧键都能录入。F1 可随时查看。", p.F(10.5f), Th.Faint, x + 22, cardTop + 38);
             Button(p, x + 22, cardTop + 56, 104, "恢复默认", "resetkeys", 0, false);
 
             for (int i = 0; i < KeyMap.Items.Count; i++)
@@ -385,7 +385,7 @@ namespace Lamplight
                 p.TextMid(it.Label, p.F(11.5f), cap ? Th.Accent : Th.Body, x + 24, ry + 13);
 
                 string combo = KeyMap.Get(it.Action);
-                string shown = cap ? "按下新键…" : (string.IsNullOrEmpty(combo) ? "未设置" : combo);
+                string shown = cap ? "按新键或鼠标键…" : (string.IsNullOrEmpty(combo) ? "未设置" : KeyMap.Pretty(combo));
                 float bw = Math.Max(64, p.Width(shown, p.F(10.5f)) + 22);
                 RectangleF pill = new RectangleF(r.Right - bw - 8, ry + 3, bw, 24);
                 p.FillRound(cap ? Th.Accent : Th.Panel, pill, 12);
